@@ -67,6 +67,8 @@ export type UIMessageType =
   | 'selectNode'
   | 'refreshMarkedLayers'
   | 'getSavedVectors'
+  | 'getLayerForNormalPreview'
+  | 'getLayerForOcclusionPreview'
   | 'saveDrivenRelations'
   | 'UPDATE_PANEL_NAMES';
 
@@ -100,6 +102,7 @@ export type PluginMessageType =
   | 'DOCUMENT_CHANGED'
   // 预览数据 (原版兼容)
   | 'normalPreviewData'
+  | 'occlusionPreviewData'
   | 'craftLayerSelected'
   | 'clearPreviewData'
   // 矢量数据 (原版兼容)
@@ -363,6 +366,19 @@ export interface GetSavedVectorsMessage {
   readonly type: 'getSavedVectors';
 }
 
+/** 获取指定图层的法线预览数据（原版兼容） */
+export interface GetLayerForNormalPreviewMessage {
+  readonly type: 'getLayerForNormalPreview';
+  readonly layerId: string;
+}
+
+/** 获取指定图层的遮挡预览数据（目标层 + 遮挡层 PNG，按 alpha 轮廓遮挡） */
+export interface GetLayerForOcclusionPreviewMessage {
+  readonly type: 'getLayerForOcclusionPreview';
+  readonly layerId: string;
+  readonly requestId: number;
+}
+
 /** 更新面板名称 */
 export interface UpdatePanelNamesMessage {
   readonly type: 'UPDATE_PANEL_NAMES';
@@ -414,6 +430,8 @@ export type UIMessage =
   | SelectNodeMessage
   | RefreshMarkedLayersMessage
   | GetSavedVectorsMessage
+  | GetLayerForNormalPreviewMessage
+  | GetLayerForOcclusionPreviewMessage
   | UpdatePanelNamesMessage;
 
 // ========== Plugin → UI 消息定义 ==========
@@ -555,6 +573,27 @@ export interface NormalPreviewDataMessage {
   readonly height: number;
 }
 
+/** 遮挡预览数据：targetPNG 与 occluderPNG 在同一尺寸/坐标系下 */
+export interface OcclusionPreviewDataMessage {
+  readonly type: 'occlusionPreviewData';
+  readonly layerId: string;
+  readonly requestId: number;
+  readonly targetImageData: ArrayBuffer;
+  readonly occluderImageData: ArrayBuffer;
+  readonly width: number;
+  readonly height: number;
+  readonly isPNG?: boolean;
+  readonly debug?: {
+    readonly occluderCount?: number;
+    readonly targetBytesLen?: number;
+    readonly occluderBytesLen?: number;
+    readonly targetPngWidth?: number;
+    readonly targetPngHeight?: number;
+    readonly occluderPngWidth?: number;
+    readonly occluderPngHeight?: number;
+  };
+}
+
 /** 工艺图层选中 (原版兼容) */
 export interface CraftLayerSelectedMessage {
   readonly type: 'craftLayerSelected';
@@ -603,6 +642,7 @@ export type PluginMessage =
   | PluginReadyMessage
   | DocumentChangedMessage
   | NormalPreviewDataMessage
+  | OcclusionPreviewDataMessage
   | CraftLayerSelectedMessage
   | ClearPreviewDataMessage
   | VectorsFoundMessage

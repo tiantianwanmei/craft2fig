@@ -26,4 +26,5 @@ export type {
   SkinnedFoldingMeshProps,
   FoldTimingConfig,
   SkinnedMeshData,
+  PBRMaterialProps,
 } from './types';

@@ -43,19 +43,32 @@ export function HDRDomeGround({
 }: HDRDomeGroundProps) {
   // ground projection 需要 background=true 才能正确显示
   // ground 属性会自动创建地面投影效果，不会产生额外的球体
+  const groundConfig = groundProjection
+    ? {
+      height: domeHeight,
+      radius: domeRadius,
+      scale: domeScale,
+    }
+    : undefined;
+
+  // 使用 key 强制在参数变化时重新创建 Environment 组件
+  const envKey = groundProjection
+    ? `env-${preset}-${domeHeight}-${domeRadius}-${domeScale}`
+    : `env-${preset}`;
+
+  // 修复：优先使用本地文件避免 Fetch 错误 (针对 studio 预设)
+  // 注意：在 Vite 中，public 目录下的文件可以直接通过 /filename 访问
+  const isStudio = preset === 'studio';
+  const envProps = isStudio
+    ? { files: 'https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/1k/studio_small_03_1k.hdr', preset: undefined }
+    : { preset };
+
   return (
     <Environment
-      preset={preset}
+      key={envKey}
+      {...envProps}
       background={showBackground}
-      ground={
-        groundProjection
-          ? {
-              height: domeHeight,
-              radius: domeRadius,
-              scale: domeScale,
-            }
-          : undefined
-      }
+      ground={groundConfig}
       environmentIntensity={intensity}
     />
   );

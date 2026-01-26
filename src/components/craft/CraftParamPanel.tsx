@@ -5,7 +5,7 @@
 
 import React, { memo } from 'react';
 import { Slider, Section } from '@genki/shared-ui';
-import { COMPONENT_TOKENS, SEMANTIC_TOKENS, BASE_TOKENS } from '@genki/shared-theme';
+import { COMPONENT_TOKENS, SEMANTIC_TOKENS } from '@genki/shared-theme';
 import type { CraftParams } from '../../types/core';
 
 type Writable<T> = { -readonly [K in keyof T]: T[K] }
@@ -88,7 +88,6 @@ function ParamRow({
       step={step}
       unit={unit}
       onChange={onChange}
-      showValue={true}
     />
   )
 }
@@ -108,6 +107,7 @@ function ParamSelect({
   return (
     <select
       value={value}
+      aria-label={label}
       onChange={(e) => onChange(e.target.value)}
       style={{
         width: '100%',
@@ -234,7 +234,8 @@ function UVPanel({
   const currentType = (settings.type as string | undefined) ?? 'gloss'
 
   const PRESETS_PER_PAGE = 9; // 3x3 正方形网格
-  const allPresets = [
+  type UVPresetItem = { id: string; label: string; color: string; isPlaceholder?: boolean };
+  const allPresets: UVPresetItem[] = [
     { id: 'gloss', label: '高光', color: COMPONENT_TOKENS.layout.uvPresetGrid.item.bg.variant1 },
     { id: 'semi', label: '半光', color: COMPONENT_TOKENS.layout.uvPresetGrid.item.bg.variant2 },
     { id: 'satin', label: '缎面', color: COMPONENT_TOKENS.layout.uvPresetGrid.item.bg.variant3 },
@@ -251,7 +252,7 @@ function UVPanel({
   const currentPresets = allPresets.slice(startIndex, startIndex + PRESETS_PER_PAGE);
 
   // 填充空白占位符，确保始终显示 9 个方块
-  const gridItems = [...currentPresets];
+  const gridItems: UVPresetItem[] = [...currentPresets];
   while (gridItems.length < PRESETS_PER_PAGE) {
     gridItems.push({ id: `placeholder-${gridItems.length}`, label: '—', color: '', isPlaceholder: true });
   }
@@ -336,7 +337,7 @@ function UVPanel({
             aspectRatio: '1 / 1',
           }}>
             {gridItems.map((p) => {
-              const isPlaceholder = 'isPlaceholder' in p && p.isPlaceholder;
+              const isPlaceholder = !!p.isPlaceholder;
               return (
                 <button
                   key={p.id}
@@ -638,6 +639,25 @@ function EmbossPanel({ settings, updateSetting }: { settings: CraftSettings; upd
             <option value="linear">Linear</option>
             <option value="cosine">Cosine</option>
           </select>
+        </div>
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '8px' }}>
+          <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '10px', color: 'rgba(255,255,255,0.7)' }}>
+            <span>Use Luminance for Mask</span>
+            <input
+              type="checkbox"
+              checked={(settings.maskMode as string | undefined) === 'luminance'}
+              onChange={(e) => updateSetting('maskMode', e.target.checked ? 'luminance' : 'alpha')}
+            />
+          </label>
+          <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '10px', color: 'rgba(255,255,255,0.7)' }}>
+            <span>Invert Mask</span>
+            <input
+              type="checkbox"
+              checked={!!settings.maskInvert}
+              onChange={(e) => updateSetting('maskInvert', e.target.checked)}
+            />
+          </label>
         </div>
       </Section>
 

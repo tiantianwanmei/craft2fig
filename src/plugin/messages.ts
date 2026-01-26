@@ -2,9 +2,9 @@
  * 📤 Message Sender - 向 UI 发送消息
  */
 
-import { isFrameNode, hasImageFill, isExportable, isClipmaskCandidate } from './utils';
+import { isFrameNode, hasImageFill, isExportable } from './utils';
 import { getAllCachedNodes, refreshNodeCache, getCache } from './cache';
-import { SELECTED_VECTORS_KEY, CRAFT_DATA_KEY, CRAFT_TYPES, type CraftTypeZh } from './constants';
+import { SELECTED_VECTORS_KEY, CRAFT_DATA_KEY, type CraftTypeZh } from './constants';
 
 // ========== Clipmask 盖印导出 ==========
 
@@ -49,21 +49,22 @@ function hasCraftMarking(node: SceneNode): boolean {
  * @param allClipVectorIds - 所有 clipmask vector 的 ID 集合（用于排除）
  * @returns base64 编码的 PNG 数据 URL，支持 alpha 透明
  */
-async function exportClipmaskRasterize(
+export async function exportClipmaskRasterize(
   clipVector: SceneNode,
   sourceFrame: FrameNode | ComponentNode | InstanceNode,
   allClipVectorIds: Set<string>
 ): Promise<string | undefined> {
   const bounds = clipVector.absoluteBoundingBox;
   if (!bounds) return undefined;
+  const clipBounds = bounds;
 
   try {
     // 创建临时 Frame 用于盖印
     const tempFrame = figma.createFrame();
     tempFrame.name = `__temp_clipmask_${clipVector.id}`;
-    tempFrame.x = bounds.x;
-    tempFrame.y = bounds.y;
-    tempFrame.resize(bounds.width, bounds.height);
+    tempFrame.x = clipBounds.x;
+    tempFrame.y = clipBounds.y;
+    tempFrame.resize(clipBounds.width, clipBounds.height);
     tempFrame.clipsContent = true;
     tempFrame.fills = []; // 透明背景
 
@@ -83,10 +84,10 @@ async function exportClipmaskRasterize(
 
       // 提前剪枝：如果节点完全不与 clipVector 重叠，跳过整个子树
       const overlaps = !(
-        nodeBounds.x + nodeBounds.width < bounds.x ||
-        nodeBounds.x > bounds.x + bounds.width ||
-        nodeBounds.y + nodeBounds.height < bounds.y ||
-        nodeBounds.y > bounds.y + bounds.height
+        nodeBounds.x + nodeBounds.width < clipBounds.x ||
+        nodeBounds.x > clipBounds.x + clipBounds.width ||
+        nodeBounds.y + nodeBounds.height < clipBounds.y ||
+        nodeBounds.y > clipBounds.y + clipBounds.height
       );
 
       if (!overlaps) return;
@@ -130,8 +131,8 @@ async function exportClipmaskRasterize(
         // 调整位置到临时 Frame 的本地坐标
         const layerBounds = layer.absoluteBoundingBox;
         if (layerBounds && 'x' in clone && 'y' in clone) {
-          clone.x = layerBounds.x - bounds.x;
-          clone.y = layerBounds.y - bounds.y;
+          clone.x = layerBounds.x - clipBounds.x;
+          clone.y = layerBounds.y - clipBounds.y;
         }
       } catch (e) {
         console.warn('Failed to clone layer:', layer.name, e);
@@ -174,13 +175,14 @@ async function exportClipmaskRasterize(
  * @param craftType - 工艺类型
  * @returns base64 编码的 PNG 数据 URL
  */
-async function exportCraftTexture(
+export async function exportCraftTexture(
   clipVector: SceneNode,
   sourceFrame: FrameNode | ComponentNode | InstanceNode,
   craftType: CraftTypeZh
 ): Promise<string | undefined> {
   const bounds = clipVector.absoluteBoundingBox;
   if (!bounds) return undefined;
+  const clipBounds = bounds;
 
   try {
     const tempFrame = figma.createFrame();
@@ -204,10 +206,10 @@ async function exportCraftTexture(
 
         // 检查是否与 clipVector 范围重叠
         const overlaps = !(
-          nodeBounds.x + nodeBounds.width < bounds.x ||
-          nodeBounds.x > bounds.x + bounds.width ||
-          nodeBounds.y + nodeBounds.height < bounds.y ||
-          nodeBounds.y > bounds.y + bounds.height
+          nodeBounds.x + nodeBounds.width < clipBounds.x ||
+          nodeBounds.x > clipBounds.x + clipBounds.width ||
+          nodeBounds.y + nodeBounds.height < clipBounds.y ||
+          nodeBounds.y > clipBounds.y + clipBounds.height
         );
 
         if (overlaps) {
@@ -243,8 +245,8 @@ async function exportCraftTexture(
         tempFrame.appendChild(clone);
         const layerBounds = layer.absoluteBoundingBox;
         if (layerBounds && 'x' in clone && 'y' in clone) {
-          clone.x = layerBounds.x - bounds.x;
-          clone.y = layerBounds.y - bounds.y;
+          clone.x = layerBounds.x - clipBounds.x;
+          clone.y = layerBounds.y - clipBounds.y;
         }
       } catch (e) {
         console.warn('Failed to clone craft layer:', layer.name, e);
@@ -599,22 +601,25 @@ export async function exportNodeWithPadding(
     throw new Error('Node is not exportable');
   }
 
-  const padding = Math.max(node.width, node.height) * paddingRatio;
-  const bbox = (node as any).absoluteBoundingBox;
+  const bbox = (node as any).absoluteBoundingBox as { x: number; y: number; width: number; height: number } | null;
+  const absTransform = (node as any).absoluteTransform as [[number, number, number], [number, number, number]] | null;
 
   if (!bbox) {
     throw new Error('Node has no bounding box');
   }
 
-  // 🎯 核心修复：使用绝对坐标定位（参考 figma-plugin-modern）
-  // 原因：Vector 节点可能是 Group 的子节点，坐标系统是相对的
+  // IMPORTANT: use bbox dimensions, not node.width/height.
+  // node.width/height can differ from absoluteBoundingBox under transforms,
+  // causing wrapper sizes to mismatch and resulting occlusion alignment errors.
+  const padding = Math.max(bbox.width, bbox.height) * paddingRatio;
+  const exportScale = 2;
 
   // 创建临时 Frame，位置在节点的绝对位置减去 padding
   const tempFrame = figma.createFrame();
   tempFrame.name = '__temp_export_wrapper__';
   tempFrame.x = bbox.x - padding;
   tempFrame.y = bbox.y - padding;
-  tempFrame.resize(node.width + padding * 2, node.height + padding * 2);
+  tempFrame.resize(bbox.width + padding * 2, bbox.height + padding * 2);
   tempFrame.clipsContent = false;
   tempFrame.fills = [];
 
@@ -623,20 +628,29 @@ export async function exportNodeWithPadding(
     const clone = node.clone();
     tempFrame.appendChild(clone);
 
-    // 使用绝对坐标定位（相对于 tempFrame 的原点）
-    clone.x = bbox.x - tempFrame.x;
-    clone.y = bbox.y - tempFrame.y;
+    // Position clone using absoluteTransform translation when available.
+    // Using bbox.x/y can misalign rotated/transformed nodes.
+    const tx = absTransform?.[0]?.[2];
+    const ty = absTransform?.[1]?.[2];
+    if (typeof tx === 'number' && typeof ty === 'number') {
+      clone.x = tx - tempFrame.x;
+      clone.y = ty - tempFrame.y;
+    } else {
+      clone.x = bbox.x - tempFrame.x;
+      clone.y = bbox.y - tempFrame.y;
+    }
 
-    // 导出 Frame（而不是直接导出 Vector）
+    // 导出 Frame
     const bytes = await tempFrame.exportAsync({
       format: 'PNG',
-      constraint: { type: 'SCALE', value: 2 },
+      constraint: { type: 'SCALE', value: exportScale },
     });
 
     return {
       bytes,
-      width: tempFrame.width,
-      height: tempFrame.height,
+      // Return pixel size (after export scale) so metadata matches decoded PNG.
+      width: Math.round(tempFrame.width * exportScale),
+      height: Math.round(tempFrame.height * exportScale),
     };
   } finally {
     tempFrame.remove();
@@ -653,14 +667,14 @@ export async function sendNormalPreviewData(node: SceneNode, craftType?: CraftTy
 
     figma.ui.postMessage({
       type: 'normalPreviewData',
-      imageData: result.bytes, // ✅ 直接传输 Uint8Array，避免 JSON 序列化开销
+      imageData: result.bytes,
       width: result.width,
       height: result.height,
       isPNG: true,
       isImageNode,
-      craftType, // 携带工艺类型信息
-      layerId: node.id, // 携带图层 ID
-      nodeName: node.name, // 携带节点名称（用于调试）
+      craftType,
+      layerId: node.id,
+      nodeName: node.name,
     });
   } catch (e) {
     console.warn('⚠️ Failed to send normal preview data:', e);

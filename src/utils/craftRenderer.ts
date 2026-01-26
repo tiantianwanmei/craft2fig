@@ -646,7 +646,7 @@ export class CraftRenderer {
 
     // Apply contrast adjustment
     if (contrastFactor !== 0) {
-      this.applyContrast(imgData, this.previewWidth, this.previewHeight, contrastFactor);
+      this.applyContrast(imgData, contrastFactor);
     }
   }
 
@@ -864,7 +864,7 @@ export class CraftRenderer {
     }
   }
 
-  private applyContrast(imgData: ImageData, width: number, height: number, contrastFactor: number): void {
+  private applyContrast(imgData: ImageData, contrastFactor: number): void {
     if (contrastFactor === 0) return;
 
     const data = imgData.data;
@@ -895,6 +895,9 @@ export class CraftRenderer {
   ): Promise<boolean> {
     if (!this.previewHeightData) return false
 
+    const modeRaw = (settings.sdfMode as string | undefined) || 'shrink'
+    const mode: 'shrink' | 'expand' = modeRaw === 'grow' ? 'expand' : (modeRaw as 'shrink' | 'expand')
+
     const out = await craftComputeClient.computeSdf(
       computeKey,
       this.previewHeightData,
@@ -902,13 +905,15 @@ export class CraftRenderer {
       this.previewHeight,
       {
         spread: settings.sdfSpread || 10,
-        mode: settings.sdfMode || 'shrink',
+        mode,
         profile: settings.sdfProfile || 'smoothstep',
         softness: settings.sdfSoftness || 1.0,
         rippleCount: settings.rippleCount || 3,
         rippleWidth: settings.rippleWidth || 0.5,
         rippleDash: settings.rippleDash || 0,
         heightScale: settings.heightScale || 1.5,
+        maskMode: settings.maskMode || 'alpha',
+        maskInvert: settings.maskInvert || false,
       }
     )
 

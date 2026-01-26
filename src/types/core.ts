@@ -82,6 +82,12 @@ export interface MarkedLayer {
   readonly svgPreview?: string;  // SVG 预览字符串
   readonly pngPreview?: string;  // PNG 预览 base64
   readonly shapeMask?: string;  // 面板外轮廓遮罩 base64（用于外表面透明裁剪）
+  readonly edgeMasks?: {  // 边缘遮罩（用于侧边透明裁剪）
+    readonly top: string;
+    readonly bottom: string;
+    readonly left: string;
+    readonly right: string;
+  };
 }
 
 // ========== 折边类型 ==========
@@ -142,6 +148,7 @@ export interface CraftParams {
   readonly algorithm?: 'sobel' | 'scharr';
   readonly invertY?: boolean;
   readonly useGrayscale?: boolean;
+  readonly curvature?: 'linear' | 'parabolic' | 'smooth' | 'sharp' | 'round';
 
   // Emboss (SDF)
   readonly sdfSpread?: number;
@@ -152,6 +159,8 @@ export interface CraftParams {
   readonly rippleWidth?: number;
   readonly rippleDash?: number;
   readonly heightScale?: number;
+  readonly threshold?: number;
+  readonly smoothness?: number;
 
   // UV
   readonly type?: 'gloss' | 'semi' | 'satin' | 'matte' | 'reverse' | 'frosted' | 'fragment' | 'diamond' | 'mosaic' | 'concentric';
@@ -217,7 +226,6 @@ export interface CraftParams {
 
   // Displacement
   readonly midlevel?: number;
-  readonly gradient?: number;
 }
 
 /** 斜角类型 */

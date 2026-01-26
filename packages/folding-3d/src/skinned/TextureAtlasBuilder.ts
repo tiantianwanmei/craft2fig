@@ -172,8 +172,18 @@ export class TextureAtlasBuilder {
    * 绘制单个面片
    */
   private async drawPanel(panel: PanelNode, region: AtlasRegion): Promise<void> {
+    const hasRaster = !!panel.rasterImage;
+    const rasterLen = typeof panel.rasterImage === 'string' ? panel.rasterImage.length : 0;
+    console.log(`🎨 TextureAtlas: 绘制面板 ${panel.name} (${panel.id}) - rasterImage: ${hasRaster ? `YES (${rasterLen} chars)` : 'NO'}`);
+
     if (panel.rasterImage) {
-      await this.drawRasterImage(panel.rasterImage, region);
+      try {
+        await this.drawRasterImage(panel.rasterImage, region);
+        console.log(`  ✅ 成功绘制光栅图像: ${panel.name}`);
+      } catch (error) {
+        console.error(`  ❌ 绘制光栅图像失败: ${panel.name}`, error);
+        this.drawPlaceholder(panel, region);
+      }
     } else if (panel.svgPath) {
       this.drawSvgPath(panel.svgPath, region);
     } else {
@@ -206,8 +216,16 @@ export class TextureAtlasBuilder {
     return new Promise((resolve, reject) => {
       const img = new Image();
       img.onload = () => resolve(img);
-      img.onerror = reject;
-      img.src = src;
+      img.onerror = (e) => {
+        console.error('❌ 图像加载失败:', e);
+        reject(e);
+      };
+      // 确保 base64 字符串有正确的 data: 前缀
+      if (!src.startsWith('data:')) {
+        img.src = `data:image/png;base64,${src}`;
+      } else {
+        img.src = src;
+      }
     });
   }
 

@@ -155,6 +155,8 @@ export interface SkeletonBuildResult {
   boneIndexMap: Map<string, number>;
   /** 骨骼到面片 ID 的映射 */
   bonePanelMap: Map<number, string>;
+  /** 骨骼世界位置映射（用于顶点计算） */
+  boneWorldPositions: Map<string, Point2D>;
 }
 
 /** 折叠动画状态 */
@@ -165,6 +167,36 @@ export interface FoldAnimationState {
   boneAngles: Map<number, number>;
   /** 是否正在动画 */
   isAnimating: boolean;
+}
+
+/** PBR 材质属性 */
+export interface PBRMaterialProps {
+  /** 基础粗糙度 */
+  roughness?: number;
+  /** 基础金属度 */
+  metalness?: number;
+  /** 基础颜色 */
+  color?: string;
+  /** 金属度贴图 */
+  metalnessMap?: THREE.Texture | null;
+  /** 粗糙度贴图 */
+  roughnessMap?: THREE.Texture | null;
+  /** 清漆贴图 */
+  clearcoatMap?: THREE.Texture | null;
+  /** 清漆强度 (0-1) */
+  clearcoat?: number;
+  /** 清漆粗糙度 */
+  clearcoatRoughness?: number;
+  /** 法线贴图 */
+  normalMap?: THREE.Texture | null;
+  /** 法线缩放 (凹凸程度) */
+  normalScale?: THREE.Vector2;
+  /** 环境光遮蔽贴图 */
+  aoMap?: THREE.Texture | null;
+  /** AO 强度 */
+  aoMapIntensity?: number;
+  /** 环境光反射强度 */
+  envMapIntensity?: number;
 }
 
 /** SkinnedMesh 组件属性 */
@@ -181,12 +213,10 @@ export interface SkinnedFoldingMeshProps {
   cornerRadius?: number;
   /** 关节细分段数 */
   jointSegments?: number;
-  /** 材质属性 */
-  materialProps?: {
-    roughness?: number;
-    metalness?: number;
-    color?: string;
-  };
+  /** 缩放比例（像素到3D单位） */
+  scale?: number;
+  /** 材质属性 (支持 PBR 贴图) */
+  materialProps?: PBRMaterialProps;
   /** 是否显示骨骼辅助线 */
   showSkeleton?: boolean;
   /** 是否显示线框 */

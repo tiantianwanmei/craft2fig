@@ -28,9 +28,15 @@ export const HDREnvironment: React.FC<HDREnvironmentProps> = ({
   preset = 'city',
   intensity = 1,
 }) => {
+  // 修复：优先使用本地文件避免 Fetch 错误 (针对 studio 预设)
+  const isStudio = preset === 'studio';
+  const envProps = isStudio
+    ? { files: 'https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/1k/studio_small_03_1k.hdr', preset: undefined }
+    : { preset: preset as any };
+
   return (
     <Environment
-      preset={preset as any}
+      {...envProps}
       background={false}
       blur={0.5}
     />

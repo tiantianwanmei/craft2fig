@@ -9,6 +9,7 @@ import { useAppStore, usePreviewData } from '../../store';
 import { useShallow } from 'zustand/react/shallow';
 import { craftRenderer } from '../../utils/craftRenderer';
 import { craftTypeZhToEn } from '../../utils/craftTypeMapping';
+import { usePluginMessage } from '../../hooks/usePluginMessage';
 
 interface CraftThumbnail {
   id: string;
@@ -54,10 +55,12 @@ export const CraftThumbnails = memo(function CraftThumbnails({
   collapsed = false,
   onToggle
 }: Props) {
+  // 获取消息发送函数
+  const { sendMessage } = usePluginMessage();
+
   // 使用 useShallow 优化状态订阅
   const {
     markedLayers,
-    activeCraftPanel,
     activeCraftType,
     selection,
     selectedCraftLayerId,
@@ -66,10 +69,10 @@ export const CraftThumbnails = memo(function CraftThumbnails({
     setSelectedCraftLayerId,
     setActiveTab,
     setLargePreviewCraft,
+    clearPreviewData,
   } = useAppStore(
     useShallow((s) => ({
       markedLayers: s.markedLayers,
-      activeCraftPanel: s.activeCraftPanel,
       activeCraftType: s.activeCraftType,
       selection: s.selection,
       selectedCraftLayerId: s.selectedCraftLayerId,
@@ -78,6 +81,7 @@ export const CraftThumbnails = memo(function CraftThumbnails({
       setSelectedCraftLayerId: s.setSelectedCraftLayerId,
       setActiveTab: s.setActiveTab,
       setLargePreviewCraft: s.setLargePreviewCraft,
+      clearPreviewData: s.clearPreviewData,
     }))
   );
 
@@ -146,7 +150,11 @@ export const CraftThumbnails = memo(function CraftThumbnails({
     setActiveCraftPanel(panelId);
     // 显示大图预览
     setLargePreviewCraft(thumb.craftType);
-  }, [setActiveTab, setSelectedCraftLayerId, setActiveCraftType, setActiveCraftPanel, setLargePreviewCraft]);
+    // 🔥 请求该图层的预览数据（确保大图预览能显示）
+    clearPreviewData(thumb.layerId, 'NORMAL');
+    const requestId = Date.now();
+    sendMessage({ type: 'getLayerForOcclusionPreview', layerId: thumb.layerId, requestId });
+  }, [setActiveTab, setSelectedCraftLayerId, setActiveCraftType, setActiveCraftPanel, setLargePreviewCraft, sendMessage, clearPreviewData]);
 
   // 判断缩略图是否激活 - 使用 activeCraftType 实现双向同步
   const isActive = (thumb: CraftThumbnail) => {

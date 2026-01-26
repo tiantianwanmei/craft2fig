@@ -18,6 +18,17 @@ export const CRAFT_TYPE_ZH_TO_EN: Record<string, CraftType> = {
   '法线': 'NORMAL',
   '置换': 'TEXTURE',
   '剪切蒙版': 'CLIPMASK',
+  // 小写英文映射（兼容 index-template.html 中的命名）
+  'normal': 'NORMAL',
+  'emboss': 'EMBOSS',
+  'uv': 'UV',
+  'hotfoil': 'HOTFOIL',
+  'varnish': 'VARNISH',
+  'texture': 'TEXTURE',
+  'displacement': 'TEXTURE',
+  'clipmask': 'CLIPMASK',
+  'deboss': 'DEBOSS',
+  'spot_uv': 'SPOT_UV',
 };
 
 /** 英文工艺类型到中文名称的映射 */

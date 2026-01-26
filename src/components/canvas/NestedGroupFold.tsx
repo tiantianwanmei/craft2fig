@@ -12,11 +12,65 @@ import React, { useMemo, useRef, useState, useEffect } from 'react';
 import * as THREE from 'three';
 import { useFrame } from '@react-three/fiber';
 import type { MarkedLayer } from '../../types/core';
+import { usePBRMapsFromCraftLayers, type PBRMaps } from '../../hooks/usePBRMapsFromCraftLayers';
 
 // 贴图缓存 - 全局缓存避免重复加载
 const textureCache = new Map<string, THREE.Texture>();
 // shapeMask 专用缓存（不同的翻转设置）
 const shapeMaskCache = new Map<string, THREE.Texture>();
+// 边缘遮罩缓存
+const edgeMaskCache = new Map<string, THREE.Texture>();
+
+// 生成更可靠的缓存 key（使用长度 + 前后各50字符 + 中间50字符）
+function generateCacheKey(base64: string, prefix: string = ''): string {
+  const len = base64.length;
+  if (len <= 200) return prefix + base64;
+  const start = base64.substring(0, 50);
+  const middle = base64.substring(Math.floor(len / 2) - 25, Math.floor(len / 2) + 25);
+  const end = base64.substring(len - 50);
+  return `${prefix}${len}_${start}_${middle}_${end}`;
+}
+
+// 从 base64 加载边缘遮罩的 Hook（用于侧边透明裁剪）
+const useEdgeMaskFromBase64 = (base64?: string): THREE.Texture | null => {
+  const [texture, setTexture] = useState<THREE.Texture | null>(null);
+
+  useEffect(() => {
+    if (!base64) {
+      setTexture(null);
+      return;
+    }
+
+    const cacheKey = generateCacheKey(base64, 'edge_');
+    if (edgeMaskCache.has(cacheKey)) {
+      setTexture(edgeMaskCache.get(cacheKey)!);
+      return;
+    }
+
+    const loader = new THREE.TextureLoader();
+    const dataUrl = base64.startsWith('data:') ? base64 : `data:image/png;base64,${base64}`;
+
+    loader.load(
+      dataUrl,
+      (loadedTexture) => {
+        loadedTexture.colorSpace = THREE.SRGBColorSpace;
+        loadedTexture.wrapS = THREE.ClampToEdgeWrapping;
+        loadedTexture.wrapT = THREE.ClampToEdgeWrapping;
+        loadedTexture.flipY = false;
+        loadedTexture.needsUpdate = true;
+        edgeMaskCache.set(cacheKey, loadedTexture);
+        setTexture(loadedTexture);
+      },
+      undefined,
+      (error) => {
+        console.warn('Failed to load edge mask:', error);
+        setTexture(null);
+      }
+    );
+  }, [base64]);
+
+  return texture;
+};
 
 // 从 base64 加载贴图的 Hook（用于印刷面贴图，支持动态X翻转）
 const useTextureFromBase64 = (base64?: string, flipX: boolean = true): THREE.Texture | null => {
@@ -29,7 +83,7 @@ const useTextureFromBase64 = (base64?: string, flipX: boolean = true): THREE.Tex
     }
 
     // 缓存key包含翻转状态
-    const cacheKey = `${flipX ? 'flipX_' : ''}${base64.substring(0, 100)}`;
+    const cacheKey = generateCacheKey(base64, flipX ? 'flipX_' : '');
     if (textureCache.has(cacheKey)) {
       setTexture(textureCache.get(cacheKey)!);
       return;
@@ -84,7 +138,7 @@ const useShapeMaskFromBase64 = (base64?: string): THREE.Texture | null => {
     }
 
     // 检查缓存
-    const cacheKey = 'mask_' + base64.substring(0, 100);
+    const cacheKey = generateCacheKey(base64, 'mask_');
     if (shapeMaskCache.has(cacheKey)) {
       setTexture(shapeMaskCache.get(cacheKey)!);
       return;
@@ -130,6 +184,12 @@ interface PanelData {
   bumpPreview?: string;  // 凹凸贴图
   craftType?: string;  // 工艺类型
   shapeMask?: string;  // 面板外轮廓遮罩（用于外表面透明裁剪）
+  edgeMasks?: {  // 边缘遮罩（用于侧边透明裁剪）
+    top: string;
+    bottom: string;
+    left: string;
+    right: string;
+  };
 }
 
 // 折叠边数据
@@ -163,15 +223,32 @@ interface Node3D {
   needsTextureFlipX: boolean;
 }
 
-// 工艺 PBR 参数映射
+// 工艺 PBR 参数映射（支持中文、英文大写、英文小写）
 const CRAFT_PBR_MAPPING: Record<string, { roughness: number; metalness: number; clearcoat: number }> = {
+  // 中文
   '烫金': { roughness: 0.2, metalness: 1.0, clearcoat: 0.5 },
   '烫银': { roughness: 0.15, metalness: 1.0, clearcoat: 0.6 },
   'UV': { roughness: 0.1, metalness: 0.0, clearcoat: 1.0 },
   '压凹': { roughness: 0.8, metalness: 0.0, clearcoat: 0 },
   '压凸': { roughness: 0.8, metalness: 0.0, clearcoat: 0 },
+  '凹凸': { roughness: 0.8, metalness: 0.0, clearcoat: 0 },
   '法线': { roughness: 0.7, metalness: 0.0, clearcoat: 0 },
+  '光油': { roughness: 0.1, metalness: 0.0, clearcoat: 1.0 },
+  // 英文大写
+  'HOTFOIL': { roughness: 0.2, metalness: 1.0, clearcoat: 0.5 },
+  'VARNISH': { roughness: 0.15, metalness: 1.0, clearcoat: 0.6 },
+  'EMBOSS': { roughness: 0.8, metalness: 0.0, clearcoat: 0 },
+  'DEBOSS': { roughness: 0.8, metalness: 0.0, clearcoat: 0 },
+  'NORMAL': { roughness: 0.7, metalness: 0.0, clearcoat: 0 },
+  'TEXTURE': { roughness: 0.6, metalness: 0.0, clearcoat: 0 },
+  'SPOT_UV': { roughness: 0.1, metalness: 0.0, clearcoat: 1.0 },
   'CLIPMASK': { roughness: 0.7, metalness: 0.0, clearcoat: 0 },
+  // 英文小写
+  'hotfoil': { roughness: 0.2, metalness: 1.0, clearcoat: 0.5 },
+  'varnish': { roughness: 0.15, metalness: 1.0, clearcoat: 0.6 },
+  'emboss': { roughness: 0.8, metalness: 0.0, clearcoat: 0 },
+  'normal': { roughness: 0.7, metalness: 0.0, clearcoat: 0 },
+  'uv': { roughness: 0.1, metalness: 0.0, clearcoat: 1.0 },
 };
 
 // 渲染配置接口
@@ -204,6 +281,7 @@ interface NestedGroupFoldProps {
   centerY?: number;  // 整体中心 Y（用于居中到原点）
   craftLayers?: MarkedLayer[];  // 工艺图层
   renderConfig?: RenderConfig;  // 渲染配置
+  pbrMaps?: PBRMaps;  // PBR 贴图（从外部传入）
 }
 
 /**
@@ -300,8 +378,127 @@ function calculateLocalProgress(
 }
 
 /**
+ * 异形面板网格组件 - 使用 BoxGeometry + alphaMap 渲染
+ * 放弃 ExtrudeGeometry 方案，因为轮廓提取不稳定
+ * 改用 shapeMask 作为 alphaMap 实现异形裁剪
+ */
+const ExtrudedPanelMesh: React.FC<{
+  width: number;
+  height: number;
+  thickness: number;
+  panel: PanelData;
+  renderConfig: RenderConfig;
+  flipX?: boolean;
+  pbrMaps?: PBRMaps;  // PBR 贴图
+}> = ({ width, height, thickness, panel, renderConfig, flipX = true, pbrMaps }) => {
+  const texture = useTextureFromBase64(panel.pngPreview, flipX);
+  const normalTexture = useTextureFromBase64(panel.normalPreview, flipX);
+  const bumpTexture = useTextureFromBase64(panel.bumpPreview, flipX);
+  const shapeMaskTexture = useShapeMaskFromBase64(panel.shapeMask);
+
+  // 获取工艺 PBR 参数
+  const craftType = panel.craftType || 'CLIPMASK';
+  const pbrParams = CRAFT_PBR_MAPPING[craftType] || CRAFT_PBR_MAPPING['CLIPMASK'];
+
+  // 调试日志
+  useEffect(() => {
+    console.log(`🎨 ExtrudedPanelMesh [${panel.name}]:`, {
+      craftType,
+      pbrParams,
+      hasPbrMaps: {
+        metalness: !!pbrMaps?.metalnessMap,
+        roughness: !!pbrMaps?.roughnessMap,
+        clearcoat: !!pbrMaps?.clearcoatMap,
+      },
+      hasTexture: !!texture,
+    });
+  }, [panel.name, craftType, pbrParams, pbrMaps, texture]);
+
+  const outerColor = '#ffffff';
+  const sideColor = '#e8e8e8';
+
+  // 使用 shapeMask 或 texture 的 alpha 作为遮罩
+  const alphaMap = shapeMaskTexture || texture;
+
+  return (
+    <group>
+      {/* 顶面 - 白色外表面 */}
+      <mesh castShadow receiveShadow position={[0, thickness / 2, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+        <planeGeometry args={[width, height]} />
+        <meshStandardMaterial
+          color={outerColor}
+          roughness={0.7}
+          side={THREE.DoubleSide}
+          alphaMap={alphaMap}
+          transparent={true}
+          alphaTest={0.01}
+        />
+      </mesh>
+      {/* 底面 - 印刷面贴图 */}
+      <mesh receiveShadow position={[0, -thickness / 2, 0]} rotation={[Math.PI / 2, 0, 0]}>
+        <planeGeometry args={[width, height]} />
+        <meshPhysicalMaterial
+          map={texture}
+          normalMap={normalTexture}
+          bumpMap={bumpTexture}
+          bumpScale={0.05}
+          color={texture ? '#ffffff' : '#888888'}
+          roughness={pbrParams.roughness * renderConfig.roughnessMultiplier}
+          roughnessMap={pbrMaps?.roughnessMap || undefined}
+          metalness={Math.min(1, pbrParams.metalness + renderConfig.metalnessBoost)}
+          metalnessMap={pbrMaps?.metalnessMap || undefined}
+          clearcoat={Math.min(1, pbrParams.clearcoat + renderConfig.clearcoatBoost)}
+          clearcoatMap={pbrMaps?.clearcoatMap || undefined}
+          clearcoatRoughness={0.1}
+          envMapIntensity={renderConfig.envMapIntensity}
+          side={THREE.DoubleSide}
+          transparent={true}
+          alphaTest={0.01}
+        />
+      </mesh>
+      {/* 前侧边 (Z+) */}
+      <mesh position={[0, 0, height / 2]}>
+        <planeGeometry args={[width, thickness]} />
+        <meshStandardMaterial
+          color={sideColor}
+          roughness={0.8}
+          side={THREE.DoubleSide}
+        />
+      </mesh>
+      {/* 后侧边 (Z-) */}
+      <mesh position={[0, 0, -height / 2]} rotation={[0, Math.PI, 0]}>
+        <planeGeometry args={[width, thickness]} />
+        <meshStandardMaterial
+          color={sideColor}
+          roughness={0.8}
+          side={THREE.DoubleSide}
+        />
+      </mesh>
+      {/* 左侧边 (X-) */}
+      <mesh position={[-width / 2, 0, 0]} rotation={[0, -Math.PI / 2, 0]}>
+        <planeGeometry args={[height, thickness]} />
+        <meshStandardMaterial
+          color={sideColor}
+          roughness={0.8}
+          side={THREE.DoubleSide}
+        />
+      </mesh>
+      {/* 右侧边 (X+) */}
+      <mesh position={[width / 2, 0, 0]} rotation={[0, Math.PI / 2, 0]}>
+        <planeGeometry args={[height, thickness]} />
+        <meshStandardMaterial
+          color={sideColor}
+          roughness={0.8}
+          side={THREE.DoubleSide}
+        />
+      </mesh>
+    </group>
+  );
+};
+
+/**
  * 根面板网格组件 - 支持贴图和工艺
- * 贴图在底面（折叠后朝内），顶面为纯色（折叠后朝外）
+ * 直接使用 ExtrudedPanelMesh 渲染
  */
 const RootPanelMesh: React.FC<{
   width: number;
@@ -309,28 +506,51 @@ const RootPanelMesh: React.FC<{
   thickness: number;
   panel: PanelData;
   renderConfig: RenderConfig;
-}> = ({ width, height, thickness, panel, renderConfig }) => {
-  const texture = useTextureFromBase64(panel.pngPreview);
-  const normalTexture = useTextureFromBase64(panel.normalPreview);
-  const bumpTexture = useTextureFromBase64(panel.bumpPreview);
-  // 加载面板外轮廓遮罩（用于外表面透明裁剪）
-  const shapeMaskTexture = useShapeMaskFromBase64(panel.shapeMask);
+  pbrMaps?: PBRMaps;
+}> = ({ width, height, thickness, panel, renderConfig, pbrMaps }) => {
+  // 直接使用 ExtrudedPanelMesh
+  return (
+    <ExtrudedPanelMesh
+      width={width}
+      height={height}
+      thickness={thickness}
+      panel={panel}
+      renderConfig={renderConfig}
+      flipX={true}
+      pbrMaps={pbrMaps}
+    />
+  );
+};
 
-  // 获取工艺 PBR 参数
-  const craftType = panel.craftType || 'CLIPMASK';
+/**
+ * Panel3D 的备用渲染组件（矩形+alphaMap）
+ */
+const Panel3DFallback: React.FC<{
+  node: Node3D;
+  width: number;
+  height: number;
+  thickness: number;
+  renderConfig: RenderConfig;
+  pbrMaps?: PBRMaps;
+}> = ({ node, width, height, thickness, renderConfig, pbrMaps }) => {
+  const panelTexture = useTextureFromBase64(node.panel.pngPreview, node.needsTextureFlipX);
+  const normalTexture = useTextureFromBase64(node.panel.normalPreview, node.needsTextureFlipX);
+  const bumpTexture = useTextureFromBase64(node.panel.bumpPreview, node.needsTextureFlipX);
+  const shapeMaskTexture = useShapeMaskFromBase64(node.panel.shapeMask);
+  const topEdgeMask = useEdgeMaskFromBase64(node.panel.edgeMasks?.top);
+  const bottomEdgeMask = useEdgeMaskFromBase64(node.panel.edgeMasks?.bottom);
+  const leftEdgeMask = useEdgeMaskFromBase64(node.panel.edgeMasks?.left);
+  const rightEdgeMask = useEdgeMaskFromBase64(node.panel.edgeMasks?.right);
+
+  const craftType = node.panel.craftType || 'CLIPMASK';
   const pbrParams = CRAFT_PBR_MAPPING[craftType] || CRAFT_PBR_MAPPING['CLIPMASK'];
-
-  // 外表面颜色（折叠后朝外的面）
+  const sideColor = '#e0e0e0';
   const outerColor = '#ffffff';
-  // 侧边颜色
-  const sideColor = '#e8e8e8';
-
-  // 外表面使用 shapeMask（面板外轮廓）而不是 texture（包含内部透明区域）
-  const outerAlphaMap = shapeMaskTexture || texture;
+  const outerAlphaMap = shapeMaskTexture || panelTexture;
 
   return (
-    <group>
-      {/* 顶面 - 白色，使用面板外轮廓遮罩（折叠后朝外） */}
+    <>
+      {/* 顶面 */}
       <mesh castShadow receiveShadow position={[0, thickness / 2, 0]} rotation={[-Math.PI / 2, 0, 0]}>
         <planeGeometry args={[width, height]} />
         <meshStandardMaterial
@@ -342,18 +562,21 @@ const RootPanelMesh: React.FC<{
           alphaTest={0.01}
         />
       </mesh>
-      {/* 底面 - 带贴图（折叠后朝内，印刷面） */}
+      {/* 底面 */}
       <mesh receiveShadow position={[0, -thickness / 2, 0]} rotation={[Math.PI / 2, 0, 0]}>
         <planeGeometry args={[width, height]} />
         <meshPhysicalMaterial
-          map={texture}
+          map={panelTexture}
           normalMap={normalTexture}
           bumpMap={bumpTexture}
           bumpScale={0.05}
-          color={texture ? '#ffffff' : '#888888'}
+          color={panelTexture ? '#ffffff' : '#888888'}
           roughness={pbrParams.roughness * renderConfig.roughnessMultiplier}
+          roughnessMap={pbrMaps?.roughnessMap || undefined}
           metalness={Math.min(1, pbrParams.metalness + renderConfig.metalnessBoost)}
+          metalnessMap={pbrMaps?.metalnessMap || undefined}
           clearcoat={Math.min(1, pbrParams.clearcoat + renderConfig.clearcoatBoost)}
+          clearcoatMap={pbrMaps?.clearcoatMap || undefined}
           clearcoatRoughness={0.1}
           envMapIntensity={renderConfig.envMapIntensity}
           side={THREE.DoubleSide}
@@ -361,81 +584,47 @@ const RootPanelMesh: React.FC<{
           alphaTest={0.01}
         />
       </mesh>
-      {/* 侧边 - 使用shapeMask做透明裁剪 */}
-      {/* 前侧边 (Z+) */}
+      {/* 前侧边 */}
       <mesh position={[0, 0, height / 2]}>
         <planeGeometry args={[width, thickness]} />
-        <meshStandardMaterial
-          color={sideColor}
-          roughness={0.8}
-          side={THREE.DoubleSide}
-          alphaMap={outerAlphaMap}
-          transparent={true}
-          alphaTest={0.01}
-        />
+        <meshStandardMaterial color={sideColor} roughness={0.8} side={THREE.DoubleSide}
+          alphaMap={bottomEdgeMask || outerAlphaMap} transparent={true} alphaTest={0.01} />
       </mesh>
-      {/* 后侧边 (Z-) */}
+      {/* 后侧边 */}
       <mesh position={[0, 0, -height / 2]} rotation={[0, Math.PI, 0]}>
         <planeGeometry args={[width, thickness]} />
-        <meshStandardMaterial
-          color={sideColor}
-          roughness={0.8}
-          side={THREE.DoubleSide}
-          alphaMap={outerAlphaMap}
-          transparent={true}
-          alphaTest={0.01}
-        />
+        <meshStandardMaterial color={sideColor} roughness={0.8} side={THREE.DoubleSide}
+          alphaMap={topEdgeMask || outerAlphaMap} transparent={true} alphaTest={0.01} />
       </mesh>
-      {/* 左侧边 (X-) */}
+      {/* 左侧边 */}
       <mesh position={[-width / 2, 0, 0]} rotation={[0, -Math.PI / 2, 0]}>
         <planeGeometry args={[height, thickness]} />
-        <meshStandardMaterial
-          color={sideColor}
-          roughness={0.8}
-          side={THREE.DoubleSide}
-          alphaMap={outerAlphaMap}
-          transparent={true}
-          alphaTest={0.01}
-        />
+        <meshStandardMaterial color={sideColor} roughness={0.8} side={THREE.DoubleSide}
+          alphaMap={leftEdgeMask || outerAlphaMap} transparent={true} alphaTest={0.01} />
       </mesh>
-      {/* 右侧边 (X+) */}
+      {/* 右侧边 */}
       <mesh position={[width / 2, 0, 0]} rotation={[0, Math.PI / 2, 0]}>
         <planeGeometry args={[height, thickness]} />
-        <meshStandardMaterial
-          color={sideColor}
-          roughness={0.8}
-          side={THREE.DoubleSide}
-          alphaMap={outerAlphaMap}
-          transparent={true}
-          alphaTest={0.01}
-        />
+        <meshStandardMaterial color={sideColor} roughness={0.8} side={THREE.DoubleSide}
+          alphaMap={rightEdgeMask || outerAlphaMap} transparent={true} alphaTest={0.01} />
       </mesh>
-    </group>
+    </>
   );
 };
 
 /**
  * 单个面板的3D渲染组件
+ * 直接使用 ExtrudedPanelMesh 渲染
  */
 const Panel3D: React.FC<{
   node: Node3D;
-  foldProgress: number;  // 全局折叠进度
+  foldProgress: number;
   scale: number;
   thickness: number;
   renderConfig: RenderConfig;
-}> = ({ node, foldProgress, scale, thickness, renderConfig }) => {
+  pbrMaps?: PBRMaps;
+}> = ({ node, foldProgress, scale, thickness, renderConfig, pbrMaps }) => {
   const groupRef = useRef<THREE.Group>(null);
-
-  // 加载面板贴图（根据面板位置决定是否X翻转）
-  const panelTexture = useTextureFromBase64(node.panel.pngPreview, node.needsTextureFlipX);
-  const normalTexture = useTextureFromBase64(node.panel.normalPreview, node.needsTextureFlipX);
-  const bumpTexture = useTextureFromBase64(node.panel.bumpPreview, node.needsTextureFlipX);
-  // 加载面板外轮廓遮罩（用于外表面透明裁剪）
-  const shapeMaskTexture = useShapeMaskFromBase64(node.panel.shapeMask);
-
-  // 获取工艺 PBR 参数
-  const craftType = node.panel.craftType || 'CLIPMASK';
-  const pbrParams = CRAFT_PBR_MAPPING[craftType] || CRAFT_PBR_MAPPING['CLIPMASK'];
 
   // 计算当前面板的局部折叠进度
   const localProgress = calculateLocalProgress(
@@ -444,7 +633,7 @@ const Panel3D: React.FC<{
     node.foldEndProgress
   );
 
-  // 计算当前折叠角度（使用局部进度）
+  // 计算当前折叠角度
   const foldAngle = localProgress * (Math.PI / 2) * node.foldDirection;
 
   // 使用 useFrame 更新旋转
@@ -459,98 +648,18 @@ const Panel3D: React.FC<{
   const width = node.panel.width * scale;
   const height = node.panel.height * scale;
 
-  // 侧边颜色
-  const sideColor = '#e0e0e0';
-  // 外表面颜色（折叠后朝外的面）
-  const outerColor = '#ffffff';
-
-  // 外表面使用 shapeMask（面板外轮廓）而不是 panelTexture（包含内部透明区域）
-  const outerAlphaMap = shapeMaskTexture || panelTexture;
-
   return (
     <group ref={groupRef} position={node.foldEdgePos}>
-      {/* 枢轴偏移 - 让面板绕折叠边旋转 */}
       <group position={node.pivotOffset}>
-        {/* 顶面 - 白色，使用面板外轮廓遮罩（折叠后朝外） */}
-        <mesh castShadow receiveShadow position={[0, thickness / 2, 0]} rotation={[-Math.PI / 2, 0, 0]}>
-          <planeGeometry args={[width, height]} />
-          <meshStandardMaterial
-            color={outerColor}
-            roughness={0.7}
-            side={THREE.DoubleSide}
-            alphaMap={outerAlphaMap}
-            transparent={true}
-            alphaTest={0.01}
-          />
-        </mesh>
-        {/* 底面 - 带贴图（折叠后朝内，印刷面） */}
-        <mesh receiveShadow position={[0, -thickness / 2, 0]} rotation={[Math.PI / 2, 0, 0]}>
-          <planeGeometry args={[width, height]} />
-          <meshPhysicalMaterial
-            map={panelTexture}
-            normalMap={normalTexture}
-            bumpMap={bumpTexture}
-            bumpScale={0.05}
-            color={panelTexture ? '#ffffff' : '#888888'}
-            roughness={pbrParams.roughness * renderConfig.roughnessMultiplier}
-            metalness={Math.min(1, pbrParams.metalness + renderConfig.metalnessBoost)}
-            clearcoat={Math.min(1, pbrParams.clearcoat + renderConfig.clearcoatBoost)}
-            clearcoatRoughness={0.1}
-            envMapIntensity={renderConfig.envMapIntensity}
-            side={THREE.DoubleSide}
-            transparent={true}
-            alphaTest={0.01}
-          />
-        </mesh>
-        {/* 侧边 - 使用shapeMask做透明裁剪 */}
-        {/* 前侧边 (Z+) */}
-        <mesh position={[0, 0, height / 2]}>
-          <planeGeometry args={[width, thickness]} />
-          <meshStandardMaterial
-            color={sideColor}
-            roughness={0.8}
-            side={THREE.DoubleSide}
-            alphaMap={outerAlphaMap}
-            transparent={true}
-            alphaTest={0.01}
-          />
-        </mesh>
-        {/* 后侧边 (Z-) */}
-        <mesh position={[0, 0, -height / 2]} rotation={[0, Math.PI, 0]}>
-          <planeGeometry args={[width, thickness]} />
-          <meshStandardMaterial
-            color={sideColor}
-            roughness={0.8}
-            side={THREE.DoubleSide}
-            alphaMap={outerAlphaMap}
-            transparent={true}
-            alphaTest={0.01}
-          />
-        </mesh>
-        {/* 左侧边 (X-) */}
-        <mesh position={[-width / 2, 0, 0]} rotation={[0, -Math.PI / 2, 0]}>
-          <planeGeometry args={[height, thickness]} />
-          <meshStandardMaterial
-            color={sideColor}
-            roughness={0.8}
-            side={THREE.DoubleSide}
-            alphaMap={outerAlphaMap}
-            transparent={true}
-            alphaTest={0.01}
-          />
-        </mesh>
-        {/* 右侧边 (X+) */}
-        <mesh position={[width / 2, 0, 0]} rotation={[0, Math.PI / 2, 0]}>
-          <planeGeometry args={[height, thickness]} />
-          <meshStandardMaterial
-            color={sideColor}
-            roughness={0.8}
-            side={THREE.DoubleSide}
-            alphaMap={outerAlphaMap}
-            transparent={true}
-            alphaTest={0.01}
-          />
-        </mesh>
+        <ExtrudedPanelMesh
+          width={width}
+          height={height}
+          thickness={thickness}
+          panel={node.panel}
+          renderConfig={renderConfig}
+          flipX={node.needsTextureFlipX}
+          pbrMaps={pbrMaps}
+        />
 
         {/* 递归渲染子节点 */}
         {node.children.map(child => (
@@ -561,6 +670,7 @@ const Panel3D: React.FC<{
             scale={scale}
             thickness={thickness}
             renderConfig={renderConfig}
+            pbrMaps={pbrMaps}
           />
         ))}
       </group>
@@ -585,6 +695,7 @@ export const NestedGroupFold: React.FC<NestedGroupFoldProps> = ({
   centerY = 0,  // 整体中心 Y
   craftLayers = [],  // 工艺图层
   renderConfig = DEFAULT_RENDER_CONFIG,  // 渲染配置
+  pbrMaps,  // PBR 贴图
 }) => {
   // 创建工艺图层映射（按面板边界重叠查找）
   const craftLayerMap = useMemo(() => {
@@ -650,6 +761,7 @@ export const NestedGroupFold: React.FC<NestedGroupFoldProps> = ({
         bumpPreview: craftInfo?.bump?.pngPreview,
         craftType: craftInfo?.craft || p.craftType,
         shapeMask: p.shapeMask,  // 面板外轮廓遮罩
+        edgeMasks: p.edgeMasks,  // 边缘遮罩（用于侧边透明裁剪）
       });
     });
     return map;
@@ -846,6 +958,7 @@ export const NestedGroupFold: React.FC<NestedGroupFoldProps> = ({
         thickness={thickness}
         panel={rootNode.panel}
         renderConfig={renderConfig}
+        pbrMaps={pbrMaps}
       />
 
       {/* 子节点 */}
@@ -857,6 +970,7 @@ export const NestedGroupFold: React.FC<NestedGroupFoldProps> = ({
           scale={scale}
           thickness={thickness}
           renderConfig={renderConfig}
+          pbrMaps={pbrMaps}
         />
       ))}
     </group>

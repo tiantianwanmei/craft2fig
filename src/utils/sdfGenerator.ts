@@ -10,6 +10,8 @@ export interface SDFConfig {
   rippleCount?: number
   rippleWidth?: number
   rippleDash?: number
+  maskMode?: 'alpha' | 'luminance'
+  maskInvert?: boolean
 }
 
 // 高斯模糊辅助函数
@@ -72,6 +74,22 @@ export function generateSDF(
   const rippleCount = config.rippleCount || 3
   const rippleWidth = config.rippleWidth || 0.5
   const rippleDash = config.rippleDash || 0
+  const maskMode = config.maskMode || 'alpha'
+  const maskInvert = config.maskInvert || false
+
+  const getMaskValue = (i: number): number => {
+    const a = imageData[i + 3]
+    let v = a
+    if (maskMode === 'luminance') {
+      const r = imageData[i]
+      const g = imageData[i + 1]
+      const b = imageData[i + 2]
+      const lum = 0.299 * r + 0.587 * g + 0.114 * b
+      v = (lum * a) / 255
+    }
+    if (maskInvert) v = 255 - v
+    return v
+  }
 
   // 1. 提取 Alpha 通道并计算距离场
   const grid = new Float32Array(width * height)
@@ -79,8 +97,8 @@ export function generateSDF(
 
   // 初始化：根据模式设置起点
   for (let i = 0; i < width * height; i++) {
-    const alpha = imageData[i * 4 + 3]
-    const isObject = alpha > threshold
+    const m = getMaskValue(i * 4)
+    const isObject = m > threshold
 
     if (mode === 'expand') {
       grid[i] = isObject ? 0 : INF
@@ -125,8 +143,8 @@ export function generateSDF(
   const output = new Uint8ClampedArray(width * height * 4)
 
   for (let i = 0; i < width * height; i++) {
-    const alpha = imageData[i * 4 + 3]
-    const isObject = alpha > threshold
+    const m = getMaskValue(i * 4)
+    const isObject = m > threshold
     const dist = blurred[i]
 
     // 根据模式决定是否渲染

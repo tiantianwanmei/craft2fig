@@ -9,6 +9,7 @@ import { useShallow } from 'zustand/react/shallow';
 import { useAppStore } from '../../store';
 import { SEMANTIC_TOKENS } from '@genki/shared-theme';
 import type { MarkedLayer } from '../../types/core';
+import { StudioHDREnvironment } from './StudioHDREnvironment';
 
 // 延迟加载 Canvas 以避免初始化时的 URL 问题
 const LazyCanvas = lazy(() =>
@@ -329,6 +330,7 @@ const Scene3D: React.FC<Scene3DProps> = ({ panels, hdrPreset, thickness, foldPro
 
   return (
     <group>
+      <StudioHDREnvironment preset="studio" intensity={1.5} />
       <EnvironmentLights preset={hdrPreset} />
       {hasHierarchy ? (
         <FoldingPanelGroup

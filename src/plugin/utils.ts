@@ -295,3 +295,72 @@ export function findNodesByColor(
 
   return result;
 }
+
+// ========== 遮挡检测工具 ==========
+
+/**
+ * 查找在目标节点上方（z-order 更高）且与其重叠的节点
+ * 用于生成工艺预览时，将被遮挡的部分变黑
+ *
+ * Figma z-order 规则：children 数组中索引越大的节点在视觉上越靠上
+ */
+export function findNodesAbove(
+  targetNode: SceneNode,
+  _parentFrame: FrameNode | ComponentNode | InstanceNode | GroupNode
+): SceneNode[] {
+  const result: SceneNode[] = [];
+  const targetBounds = (targetNode as any).absoluteBoundingBox;
+  if (!targetBounds) return result;
+
+  // 找到目标节点的直接父容器
+  const directParent = targetNode.parent;
+  if (!directParent || !hasChildren(directParent)) return result;
+
+  // 找到目标节点在父容器中的索引
+  const targetIndex = directParent.children.indexOf(targetNode);
+  if (targetIndex === -1) return result;
+
+  // 检查节点是否与目标重叠
+  function overlapsWithTarget(node: SceneNode): boolean {
+    const nodeBounds = (node as any).absoluteBoundingBox;
+    if (!nodeBounds) return false;
+    return !(
+      nodeBounds.x + nodeBounds.width <= targetBounds.x ||
+      nodeBounds.x >= targetBounds.x + targetBounds.width ||
+      nodeBounds.y + nodeBounds.height <= targetBounds.y ||
+      nodeBounds.y >= targetBounds.y + targetBounds.height
+    );
+  }
+
+  // 递归收集节点及其所有可见子节点（叶子节点）
+  function collectVisibleLeaves(node: SceneNode): SceneNode[] {
+    const leaves: SceneNode[] = [];
+    if (!('visible' in node) || !node.visible) return leaves;
+    if (isCraftInfrastructure(node)) return leaves;
+
+    if (hasChildren(node) && node.children.length > 0) {
+      for (const child of node.children) {
+        leaves.push(...collectVisibleLeaves(child as SceneNode));
+      }
+    } else {
+      // 叶子节点
+      if (hasFills(node) && overlapsWithTarget(node)) {
+        leaves.push(node);
+      }
+    }
+    return leaves;
+  }
+
+  // 只收集索引比目标大的兄弟节点（z-order 更高，在上方）
+  for (let i = targetIndex + 1; i < directParent.children.length; i++) {
+    const sibling = directParent.children[i] as SceneNode;
+    if (!('visible' in sibling) || !sibling.visible) continue;
+    if (isCraftInfrastructure(sibling)) continue;
+
+    // 收集该兄弟节点及其所有子节点中与目标重叠的叶子节点
+    const overlappingLeaves = collectVisibleLeaves(sibling);
+    result.push(...overlappingLeaves);
+  }
+
+  return result;
+}

@@ -65,6 +65,69 @@ import { clearCraftData, setCraftParams } from './utils';
 import { removeFromCache, hasRemainingCrafts } from './cache';
 import { removeCraftIndicator } from './indicator';
 
+function overlapsBounds(
+  a: { x: number; y: number; width: number; height: number },
+  b: { x: number; y: number; width: number; height: number }
+): boolean {
+  return !(
+    a.x + a.width <= b.x ||
+    a.x >= b.x + b.width ||
+    a.y + a.height <= b.y ||
+    a.y >= b.y + b.height
+  );
+}
+
+function isCraftInfraByName(node: SceneNode): boolean {
+  return Boolean(
+    node.name && (node.name.startsWith('__craft_') || node.name.startsWith('__craftIndicator_'))
+  );
+}
+
+function collectOccluderLeavesInSubtree(
+  node: SceneNode,
+  targetBounds: { x: number; y: number; width: number; height: number },
+  out: SceneNode[]
+): void {
+  if (!('visible' in node) || !node.visible) return;
+  if (isCraftInfraByName(node)) return;
+
+  const nodeBounds = (node as any).absoluteBoundingBox as { x: number; y: number; width: number; height: number } | null;
+  if (nodeBounds && !overlapsBounds(nodeBounds, targetBounds)) return;
+
+  if ('children' in node && node.children.length > 0) {
+    for (const child of node.children) {
+      collectOccluderLeavesInSubtree(child as SceneNode, targetBounds, out);
+    }
+    return;
+  }
+
+  if ('exportAsync' in node && nodeBounds) {
+    out.push(node);
+  }
+}
+
+function collectOccludersAboveAcrossAncestors(targetNode: SceneNode): SceneNode[] {
+  const result: SceneNode[] = [];
+  const targetBounds = (targetNode as any).absoluteBoundingBox as { x: number; y: number; width: number; height: number } | null;
+  if (!targetBounds) return result;
+
+  let current: BaseNode | null = targetNode;
+  while (current && current.parent) {
+    const parentNode: BaseNode = current.parent;
+    if (!('children' in parentNode)) break;
+    const siblings = (parentNode as BaseNode & ChildrenMixin).children as readonly SceneNode[];
+    const idx = siblings.indexOf(current as any);
+    if (idx >= 0) {
+      for (let i = idx + 1; i < siblings.length; i++) {
+        collectOccluderLeavesInSubtree(siblings[i] as SceneNode, targetBounds, result);
+      }
+    }
+    current = parentNode;
+    if (parentNode.type === 'PAGE') break;
+  }
+  return result;
+}
+
 // ========== 插件初始化 ==========
 
 // 显示 UI（__html__ 会在构建时由 esbuild 注入）
@@ -233,6 +296,7 @@ figma.on('selectionchange', () => {
       return;
     }
 
+    handleGetSelection();
     sendFramePreview();
     sendSavedVectors();
     // 🔧 修复：selection change 时跳过刷新，避免意外清除缓存
@@ -431,6 +495,10 @@ figma.ui.onmessage = async (msg: PluginMessage) => {
 
       case 'getLayerForNormalPreview':
         await handleGetLayerForNormalPreview(msg.layerId as string);
+        break;
+
+      case 'getLayerForOcclusionPreview':
+        await handleGetLayerForOcclusionPreview(msg.layerId as string, msg.requestId as number);
         break;
 
       // ========== 存储操作 ==========
@@ -1080,6 +1148,133 @@ async function handleGetLayerForNormalPreview(layerId: string): Promise<void> {
   }
 }
 
+async function handleGetLayerForOcclusionPreview(layerId: string, requestId: number): Promise<void> {
+  const node = figma.getNodeById(layerId) as SceneNode | null;
+  if (!node || !('exportAsync' in node)) {
+    figma.ui.postMessage({
+      type: 'occlusionPreviewData',
+      layerId,
+      requestId,
+      targetImageData: null,
+      occluderImageData: null,
+      width: 0,
+      height: 0,
+    });
+    return;
+  }
+
+  const bbox = (node as any).absoluteBoundingBox as { x: number; y: number; width: number; height: number } | null;
+  if (!bbox) {
+    figma.ui.postMessage({
+      type: 'occlusionPreviewData',
+      layerId,
+      requestId,
+      targetImageData: null,
+      occluderImageData: null,
+      width: 0,
+      height: 0,
+    });
+    return;
+  }
+
+  const paddingRatio = 0.15;
+  // IMPORTANT: use bbox dimensions, not node.width/height.
+  // node.width/height can differ under transforms, causing occlusion masks to misalign.
+  const padding = Math.max(bbox.width, bbox.height) * paddingRatio;
+  const wrapperX = bbox.x - padding;
+  const wrapperY = bbox.y - padding;
+  const wrapperW = bbox.width + padding * 2;
+  const wrapperH = bbox.height + padding * 2;
+
+  const target = await exportNodeWithPadding(node, paddingRatio);
+
+  const occluderFrame = figma.createFrame();
+  occluderFrame.name = '__temp_occlusion_wrapper__';
+  occluderFrame.x = wrapperX;
+  occluderFrame.y = wrapperY;
+  occluderFrame.resize(wrapperW, wrapperH);
+  occluderFrame.clipsContent = false;
+  occluderFrame.fills = [];
+
+  try {
+    const occluderLeaves = collectOccludersAboveAcrossAncestors(node);
+    console.log(
+      '🧩 [OcclusionPreview] layer=',
+      node.id,
+      'name=',
+      node.name,
+      'occluders=',
+      occluderLeaves.length,
+      'wrapper=',
+      { x: wrapperX, y: wrapperY, w: wrapperW, h: wrapperH },
+      'targetPx=',
+      { w: target.width, h: target.height }
+    );
+    for (const occ of occluderLeaves) {
+      try {
+        const occBbox = (occ as any).absoluteBoundingBox as { x: number; y: number; width: number; height: number } | null;
+        if (!occBbox) continue;
+        const occAbsTransform = (occ as any).absoluteTransform as [[number, number, number], [number, number, number]] | null;
+        const clone = occ.clone();
+        occluderFrame.appendChild(clone);
+        const tx = occAbsTransform?.[0]?.[2];
+        const ty = occAbsTransform?.[1]?.[2];
+        if (typeof tx === 'number' && typeof ty === 'number') {
+          clone.x = tx - wrapperX;
+          clone.y = ty - wrapperY;
+        } else {
+          clone.x = occBbox.x - wrapperX;
+          clone.y = occBbox.y - wrapperY;
+        }
+      } catch (_e) {
+        // ignore single occluder failures
+      }
+    }
+
+    const occBytes = await occluderFrame.exportAsync({
+      format: 'PNG',
+      constraint: { type: 'SCALE', value: 2 },
+    });
+
+    const exportScale = 2;
+    const occPxW = Math.round(occluderFrame.width * exportScale);
+    const occPxH = Math.round(occluderFrame.height * exportScale);
+
+    figma.ui.postMessage({
+      type: 'occlusionPreviewData',
+      layerId: node.id,
+      requestId,
+      targetImageData: target.bytes,
+      occluderImageData: occBytes,
+      width: target.width,
+      height: target.height,
+      isPNG: true,
+      debug: {
+        occluderCount: occluderLeaves.length,
+        targetBytesLen: target.bytes.byteLength,
+        occluderBytesLen: occBytes.byteLength,
+        targetPngWidth: target.width,
+        targetPngHeight: target.height,
+        occluderPngWidth: occPxW,
+        occluderPngHeight: occPxH,
+      },
+    });
+  } catch (e) {
+    console.warn('Failed to build occlusion preview:', e);
+    figma.ui.postMessage({
+      type: 'occlusionPreviewData',
+      layerId: node.id,
+      requestId,
+      targetImageData: null,
+      occluderImageData: null,
+      width: 0,
+      height: 0,
+    });
+  } finally {
+    occluderFrame.remove();
+  }
+}
+
 // ========== 存储处理 ==========
 
 async function handleRequestSettings(key: string): Promise<void> {
@@ -1181,7 +1376,7 @@ async function sendInitialPreviewData(): Promise<void> {
   // 如果有已标记的图层，发送第一个图层的预览数据
   if (markedLayers.length > 0) {
     const firstLayerId = markedLayers[0].id;
-    await handleGetLayerForNormalPreview(firstLayerId);
+    await handleGetLayerForOcclusionPreview(firstLayerId, Date.now());
   }
 }
 

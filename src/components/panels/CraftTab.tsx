@@ -12,7 +12,7 @@ import { usePluginMessage } from '../../hooks/usePluginMessage';
 import { CraftParamPanel, type CraftSettings } from '../craft/CraftParamPanel';
 import type { CraftParams, CraftType, MarkedLayer } from '../../types/core';
 import { updateGlobalCraftParams } from '../../utils/globalCraftParams';
-import { craftTypeZhToEn, craftTypeEnToZh } from '../../utils/craftTypeMapping';
+import { craftTypeZhToEn } from '../../utils/craftTypeMapping';
 
 // ========== 图层下拉框组件（提前定义，避免打包问题）==========
 
@@ -228,8 +228,10 @@ export const CraftTab = memo(function CraftTab() {
     selectedCraftLayerId,
     setActiveCraftPanel,
     setActiveCraftType,
-    setSelectedCraftLayerId,
     setCraftParams,
+    setSelectedCraftLayerId,
+    setLargePreviewCraft,
+    clearPreviewData,
   } = useAppStore(
     useShallow((s) => ({
       markedLayers: s.markedLayers,
@@ -238,10 +240,13 @@ export const CraftTab = memo(function CraftTab() {
       selectedCraftLayerId: s.selectedCraftLayerId,
       setActiveCraftPanel: s.setActiveCraftPanel,
       setActiveCraftType: s.setActiveCraftType,
-      setSelectedCraftLayerId: s.setSelectedCraftLayerId,
       setCraftParams: s.setCraftParams,
+      setSelectedCraftLayerId: s.setSelectedCraftLayerId,
+      setLargePreviewCraft: s.setLargePreviewCraft,
+      clearPreviewData: s.clearPreviewData,
     }))
   );
+
   const { sendMessage } = usePluginMessage();
 
   // 本地状态
@@ -329,8 +334,10 @@ export const CraftTab = memo(function CraftTab() {
     setActiveCraftTypeLocal(''); // 重置工艺类型，让 useEffect 自动选择第一个
 
     // 请求该图层的预览数据
-    sendMessage({ type: 'getLayerForNormalPreview', layerId });
-  }, [setSelectedCraftLayerId, sendMessage]);
+    clearPreviewData(layerId, 'NORMAL');
+    const requestId = Date.now();
+    sendMessage({ type: 'getLayerForOcclusionPreview', layerId, requestId });
+  }, [setSelectedCraftLayerId, sendMessage, clearPreviewData]);
 
   // 切换工艺类型
   const handleCraftTypeSwitch = useCallback((craftType: CraftType) => {
@@ -340,7 +347,15 @@ export const CraftTab = memo(function CraftTab() {
       setActiveCraftPanel(config.panelId);
       setActiveCraftType(craftType);
     }
-  }, [setActiveCraftPanel, setActiveCraftType]);
+    // 与参考实现对齐：切换工艺时同步打开/更新大图预览
+    setLargePreviewCraft(craftType);
+    // 与参考实现对齐：确保底图预览数据存在（缩略图/大图均复用 NORMAL 底图）
+    if (selectedLayerId) {
+      clearPreviewData(selectedLayerId, 'NORMAL');
+      const requestId = Date.now();
+      sendMessage({ type: 'getLayerForOcclusionPreview', layerId: selectedLayerId, requestId });
+    }
+  }, [setActiveCraftPanel, setActiveCraftType, selectedLayerId, sendMessage, setLargePreviewCraft, clearPreviewData]);
 
   const handleSettingsChange = useCallback((newSettings: CraftSettings) => {
     setCraftSettingsByPanel((prev) => ({

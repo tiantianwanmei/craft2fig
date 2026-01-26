@@ -22,6 +22,8 @@ function toHeightMapRGBA(src: Uint8ClampedArray): Uint8ClampedArray {
 // 获取稳定的 store actions（不订阅状态变化）
 const getStoreActions = () => useAppStore.getState();
 
+const latestOcclusionRequestIdByLayer = new Map<string, number>();
+
 // 过滤掉被其他图层完全包含的嵌套图层（与 ViewportArea 中的逻辑一致）
 function filterNestedLayers(layers: any[]): any[] {
   if (!layers || layers.length <= 1) return layers;
@@ -65,16 +67,37 @@ async function decodePNGAndSetPreview(
   const width = bitmap.width;
   const height = bitmap.height;
 
-  const canvas = document.createElement('canvas');
-  canvas.width = width;
-  canvas.height = height;
+  let ctx: OffscreenCanvasRenderingContext2D | CanvasRenderingContext2D | null = null;
+  let canvas: OffscreenCanvas | HTMLCanvasElement | null = null;
 
-  const ctx = canvas.getContext('2d');
-  if (!ctx) return;
-  ctx.drawImage(bitmap, 0, 0);
+  if (typeof (globalThis as any).OffscreenCanvas !== 'undefined') {
+    canvas = new (globalThis as any).OffscreenCanvas(width, height) as OffscreenCanvas;
+    ctx = canvas.getContext('2d');
+  } else {
+    canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    ctx = canvas.getContext('2d');
+  }
+
+  if (!ctx || !canvas) {
+    try {
+      bitmap.close();
+    } catch (_e) {
+      // ignore
+    }
+    return;
+  }
+
+  ctx.drawImage(bitmap as any, 0, 0);
+  try {
+    bitmap.close();
+  } catch (_e) {
+    // ignore
+  }
 
   const run = () => {
-    const imageData = ctx.getImageData(0, 0, width, height);
+    const imageData = (ctx as any).getImageData(0, 0, width, height) as ImageData;
     callback(imageData.data, width, height);
   };
 
@@ -94,6 +117,12 @@ export function usePluginMessage(options: UsePluginMessageOptions = {}) {
 
   // 发送消息到 Plugin
   const sendMessage = useCallback((message: UIMessage) => {
+    if ((message as any).type === 'getLayerForOcclusionPreview') {
+      const m = message as any;
+      if (typeof m.layerId === 'string' && typeof m.requestId === 'number') {
+        latestOcclusionRequestIdByLayer.set(m.layerId, m.requestId);
+      }
+    }
     parent.postMessage({ pluginMessage: message }, '*');
   }, []);
 
@@ -136,7 +165,8 @@ export function usePluginMessage(options: UsePluginMessageOptions = {}) {
         }
 
         // 内置处理逻辑
-        switch (message.type) {
+        const messageType = (message as any).type as string;
+        switch (messageType) {
         case 'BOOT_LOGS': {
           const payload = (message as any).payload;
           console.log('UI BOOT LOGS:', payload);
@@ -167,14 +197,95 @@ export function usePluginMessage(options: UsePluginMessageOptions = {}) {
           break;
         }
 
+        case 'occlusionPreviewData': {
+          const msg = message as any;
+          const craftType = 'NORMAL';
+          const layerId = msg.layerId || 'unknown';
+          const requestId = typeof msg.requestId === 'number' ? msg.requestId : -1;
+          const latest = latestOcclusionRequestIdByLayer.get(layerId);
+          if (typeof latest === 'number' && requestId !== latest) break;
+
+          try {
+            console.log('[UI OcclusionPreview] recv', {
+              layerId,
+              requestId,
+              hasTarget: !!msg.targetImageData,
+              hasOccluder: !!msg.occluderImageData,
+              isPNG: msg.isPNG,
+              debug: msg.debug,
+              width: msg.width,
+              height: msg.height,
+            });
+          } catch (_e) {
+            // ignore
+          }
+
+          if (!msg.targetImageData || !msg.occluderImageData) {
+            console.warn('[UI OcclusionPreview] missing image data; drop', { layerId, requestId });
+            break;
+          }
+
+          const decodePng = (bytes: Uint8Array) => new Promise<{ data: Uint8ClampedArray; width: number; height: number }>((resolve) => {
+            decodePNGAndSetPreview(bytes, (data, width, height) => resolve({ data, width, height }));
+          });
+
+          void (async () => {
+            const target = await decodePng(new Uint8Array(msg.targetImageData));
+            const occ = await decodePng(new Uint8Array(msg.occluderImageData));
+
+            if (target.width !== occ.width || target.height !== occ.height) {
+              console.warn('[UI OcclusionPreview] size mismatch; fallback to target only', {
+                layerId,
+                requestId,
+                target: { w: target.width, h: target.height },
+                occ: { w: occ.width, h: occ.height },
+                debug: msg.debug,
+              });
+              setPreviewData(layerId, craftType, toHeightMapRGBA(target.data), target.width, target.height);
+              return;
+            }
+
+            const latestAfterDecode = latestOcclusionRequestIdByLayer.get(layerId);
+            if (typeof latestAfterDecode === 'number' && requestId !== latestAfterDecode) return;
+
+            const out = new Uint8ClampedArray(target.data);
+
+            // Time-slice alpha compositing to avoid long main-thread stalls.
+            const total = out.length;
+            let i = 0;
+            const step = () => {
+              const budgetMs = 8;
+              const t0 = performance.now();
+              for (; i < total; i += 4) {
+                const ta = out[i + 3];
+                const oa = occ.data[i + 3];
+                out[i + 3] = Math.round((ta * (255 - oa)) / 255);
+                if (performance.now() - t0 > budgetMs) break;
+              }
+
+              const latestAfterDecode2 = latestOcclusionRequestIdByLayer.get(layerId);
+              if (typeof latestAfterDecode2 === 'number' && requestId !== latestAfterDecode2) return;
+
+              if (i >= total) {
+                setPreviewData(layerId, craftType, toHeightMapRGBA(out), target.width, target.height);
+                return;
+              }
+              requestAnimationFrame(step);
+            };
+
+            requestAnimationFrame(step);
+          })();
+          break;
+        }
+
         case 'SELECTION_CHANGED':
         case 'SELECTION_RESULT':
-          setSelection(message.payload);
+          setSelection((message as any).payload);
           break;
 
         case 'MARKED_LAYERS_CHANGED':
         case 'MARKED_LAYERS_RESULT':
-          setMarkedLayers([...message.payload.layers]);
+          setMarkedLayers([...(message as any).payload.layers]);
           break;
 
         // ✅ 新增：处理增量删除消息
@@ -190,33 +301,33 @@ export function usePluginMessage(options: UsePluginMessageOptions = {}) {
 
         case 'FOLD_EDGES_CHANGED':
         case 'FOLD_EDGES_RESULT':
-          setFoldEdges([...message.payload.edges]);
+          setFoldEdges([...(message as any).payload.edges]);
           break;
 
         case 'DRIVEN_RELATIONS_CHANGED':
         case 'DRIVEN_RELATIONS_RESULT':
-          setDrivenRelations([...message.payload.relations]);
+          setDrivenRelations([...(message as any).payload.relations]);
           break;
 
         case 'EXPORT_PROGRESS':
-          setLoading(message.payload.progress < 100);
+          setLoading((message as any).payload.progress < 100);
           break;
 
         case 'EXPORT_RESULT':
           setLoading(false);
-          if (message.payload.success) {
+          if ((message as any).payload.success) {
             addNotification('导出成功!', 'success');
           } else {
-            addNotification(message.payload.error || '导出失败', 'error');
+            addNotification((message as any).payload.error || '导出失败', 'error');
           }
           break;
 
         case 'ERROR':
-          addNotification(message.payload.message, 'error');
+          addNotification((message as any).payload.message, 'error');
           break;
 
         case 'NOTIFICATION':
-          addNotification(message.payload.message, message.payload.variant);
+          addNotification((message as any).payload.message, (message as any).payload.variant);
           break;
 
         case 'PLUGIN_READY':
@@ -318,6 +429,8 @@ export function usePluginMessage(options: UsePluginMessageOptions = {}) {
               const croppedTextures: Record<string, string> = {};
               // 新增：面板外轮廓遮罩（用于外表面透明裁剪）
               const shapeMasks: Record<string, string> = {};
+              // 新增：边缘遮罩（用于侧边透明裁剪）
+              const edgeMasksMap: Record<string, { top: string; bottom: string; left: string; right: string }> = {};
 
               if (frameImage && frameWidth && frameHeight) {
                 console.log(`🖼️ 开始裁剪贴图: ${vectors.length} 个面片, Frame: ${frameWidth}x${frameHeight}`);
@@ -372,7 +485,121 @@ export function usePluginMessage(options: UsePluginMessageOptions = {}) {
                     const shapeMaskUrl = canvas.toDataURL('image/png');
                     shapeMasks[v.id] = shapeMaskUrl;
 
-                    console.log(`✂️ 裁剪 ${v.name}: (${cropX}, ${cropY}, ${cropW}, ${cropH}) + shapeMask`);
+                    // 生成4个边缘遮罩（用于侧边透明裁剪）
+                    // 侧边面的尺寸是 (边长 x 厚度)，厚度方向应该是均匀的
+                    // 所以边缘遮罩的尺寸应该是 (边长 x 2)，2像素高度足够表示厚度方向的均匀性
+                    const edgeMasks: { top: string; bottom: string; left: string; right: string } = {
+                      top: '', bottom: '', left: '', right: ''
+                    };
+
+                    // 重新获取原始图像数据
+                    ctx.drawImage(img, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
+                    const origData = ctx.getImageData(0, 0, cropW, cropH);
+
+                    // 侧边遮罩的厚度方向像素数（2像素足够，会被拉伸到实际厚度）
+                    const EDGE_THICKNESS = 2;
+
+                    // 上边缘遮罩 (宽度=cropW, 高度=EDGE_THICKNESS)
+                    // 对应后侧边 (Z-)，planeGeometry args=[width, thickness]
+                    const topCanvas = document.createElement('canvas');
+                    topCanvas.width = cropW;
+                    topCanvas.height = EDGE_THICKNESS;
+                    const topCtx = topCanvas.getContext('2d');
+                    if (topCtx) {
+                      const topData = topCtx.createImageData(cropW, EDGE_THICKNESS);
+                      for (let x = 0; x < cropW; x++) {
+                        const srcIdx = x * 4; // 第一行
+                        const alpha = origData.data[srcIdx + 3];
+                        const alphaVal = alpha > 0 ? 255 : 0;
+                        // 填充所有厚度行（均匀）
+                        for (let t = 0; t < EDGE_THICKNESS; t++) {
+                          const dstIdx = (t * cropW + x) * 4;
+                          topData.data[dstIdx] = 255;
+                          topData.data[dstIdx + 1] = 255;
+                          topData.data[dstIdx + 2] = 255;
+                          topData.data[dstIdx + 3] = alphaVal;
+                        }
+                      }
+                      topCtx.putImageData(topData, 0, 0);
+                      edgeMasks.top = topCanvas.toDataURL('image/png');
+                    }
+
+                    // 下边缘遮罩 (宽度=cropW, 高度=EDGE_THICKNESS)
+                    // 对应前侧边 (Z+)，planeGeometry args=[width, thickness]
+                    const bottomCanvas = document.createElement('canvas');
+                    bottomCanvas.width = cropW;
+                    bottomCanvas.height = EDGE_THICKNESS;
+                    const bottomCtx = bottomCanvas.getContext('2d');
+                    if (bottomCtx) {
+                      const bottomData = bottomCtx.createImageData(cropW, EDGE_THICKNESS);
+                      for (let x = 0; x < cropW; x++) {
+                        const srcIdx = ((cropH - 1) * cropW + x) * 4; // 最后一行
+                        const alpha = origData.data[srcIdx + 3];
+                        const alphaVal = alpha > 0 ? 255 : 0;
+                        for (let t = 0; t < EDGE_THICKNESS; t++) {
+                          const dstIdx = (t * cropW + x) * 4;
+                          bottomData.data[dstIdx] = 255;
+                          bottomData.data[dstIdx + 1] = 255;
+                          bottomData.data[dstIdx + 2] = 255;
+                          bottomData.data[dstIdx + 3] = alphaVal;
+                        }
+                      }
+                      bottomCtx.putImageData(bottomData, 0, 0);
+                      edgeMasks.bottom = bottomCanvas.toDataURL('image/png');
+                    }
+
+                    // 左边缘遮罩 (宽度=EDGE_THICKNESS, 高度=cropH)
+                    // 对应左侧边 (X-)，planeGeometry args=[height, thickness]
+                    const leftCanvas = document.createElement('canvas');
+                    leftCanvas.width = EDGE_THICKNESS;
+                    leftCanvas.height = cropH;
+                    const leftCtx = leftCanvas.getContext('2d');
+                    if (leftCtx) {
+                      const leftData = leftCtx.createImageData(EDGE_THICKNESS, cropH);
+                      for (let y = 0; y < cropH; y++) {
+                        const srcIdx = (y * cropW) * 4; // 第一列
+                        const alpha = origData.data[srcIdx + 3];
+                        const alphaVal = alpha > 0 ? 255 : 0;
+                        for (let t = 0; t < EDGE_THICKNESS; t++) {
+                          const dstIdx = (y * EDGE_THICKNESS + t) * 4;
+                          leftData.data[dstIdx] = 255;
+                          leftData.data[dstIdx + 1] = 255;
+                          leftData.data[dstIdx + 2] = 255;
+                          leftData.data[dstIdx + 3] = alphaVal;
+                        }
+                      }
+                      leftCtx.putImageData(leftData, 0, 0);
+                      edgeMasks.left = leftCanvas.toDataURL('image/png');
+                    }
+
+                    // 右边缘遮罩 (宽度=EDGE_THICKNESS, 高度=cropH)
+                    // 对应右侧边 (X+)，planeGeometry args=[height, thickness]
+                    const rightCanvas = document.createElement('canvas');
+                    rightCanvas.width = EDGE_THICKNESS;
+                    rightCanvas.height = cropH;
+                    const rightCtx = rightCanvas.getContext('2d');
+                    if (rightCtx) {
+                      const rightData = rightCtx.createImageData(EDGE_THICKNESS, cropH);
+                      for (let y = 0; y < cropH; y++) {
+                        const srcIdx = (y * cropW + cropW - 1) * 4; // 最后一列
+                        const alpha = origData.data[srcIdx + 3];
+                        const alphaVal = alpha > 0 ? 255 : 0;
+                        for (let t = 0; t < EDGE_THICKNESS; t++) {
+                          const dstIdx = (y * EDGE_THICKNESS + t) * 4;
+                          rightData.data[dstIdx] = 255;
+                          rightData.data[dstIdx + 1] = 255;
+                          rightData.data[dstIdx + 2] = 255;
+                          rightData.data[dstIdx + 3] = alphaVal;
+                        }
+                      }
+                      rightCtx.putImageData(rightData, 0, 0);
+                      edgeMasks.right = rightCanvas.toDataURL('image/png');
+                    }
+
+                    // 存储边缘遮罩
+                    edgeMasksMap[v.id] = edgeMasks;
+
+                    console.log(`✂️ 裁剪 ${v.name}: (${cropX}, ${cropY}, ${cropW}, ${cropH}) + shapeMask + edgeMasks`);
                   }
                   console.log(`✅ 贴图裁剪完成: ${Object.keys(croppedTextures).length} 个, shapeMask: ${Object.keys(shapeMasks).length} 个`);
                 } catch (e) {
@@ -380,7 +607,7 @@ export function usePluginMessage(options: UsePluginMessageOptions = {}) {
                 }
               }
 
-              return { croppedTextures, shapeMasks };
+              return { croppedTextures, shapeMasks, edgeMasksMap };
             };
 
             // 先创建基础 layers（不含贴图）
@@ -410,16 +637,17 @@ export function usePluginMessage(options: UsePluginMessageOptions = {}) {
             setClipMaskVectors(baseLayers);
 
             // 异步裁剪贴图并更新
-            cropTexturesFromFrame().then(({ croppedTextures, shapeMasks }) => {
+            cropTexturesFromFrame().then(({ croppedTextures, shapeMasks, edgeMasksMap }) => {
               if (Object.keys(croppedTextures).length > 0) {
                 // 更新 layers 添加裁剪后的贴图和形状遮罩
                 const layersWithTextures = baseLayers.map((layer: any) => ({
                   ...layer,
                   pngPreview: croppedTextures[layer.id] || layer.pngPreview,
                   shapeMask: shapeMasks[layer.id],  // 面板外轮廓遮罩
+                  edgeMasks: edgeMasksMap[layer.id],  // 边缘遮罩（用于侧边透明裁剪）
                 }));
                 setClipMaskVectors(layersWithTextures);
-                console.log('🎨 贴图和 shapeMask 已更新到 clipMaskVectors');
+                console.log('🎨 贴图、shapeMask、edgeMasks 已更新到 clipMaskVectors');
               }
             });
 

@@ -40,10 +40,13 @@ export type {
 export type {
   PanelNode,
   JointInfo,
+  Point2D,
+  Rect2D,
   TextureAtlasConfig,
   TextureAtlasResult,
   AtlasRegion,
   StitchConfig,
   SkinnedFoldingMeshProps,
   FoldTimingConfig,
+  PBRMaterialProps,
 } from './skinned';

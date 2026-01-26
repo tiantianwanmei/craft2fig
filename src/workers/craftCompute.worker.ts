@@ -46,6 +46,8 @@ type SdfJob = {
     rippleDash?: number;
     heightScale?: number;
     curvature?: 'linear' | 'parabolic' | 'smooth' | 'sharp' | 'round';
+    maskMode?: 'alpha' | 'luminance';
+    maskInvert?: boolean;
   };
 };
 

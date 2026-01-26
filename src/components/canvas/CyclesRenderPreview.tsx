@@ -13,9 +13,21 @@ import * as THREE from 'three';
 import { OrbitControls as ThreeOrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { HDRDomeGround } from '@genki/craft-renderer';
 import { NestedGroupFold } from './NestedGroupFold';
+import { SkinnedMeshBridge } from './SkinnedMeshBridge';
+import { usePBRMapsFromCraftLayers, DEFAULT_CRAFT_PBR_CONFIG, type CraftPBRConfig, type CraftTypeId } from '../../hooks/usePBRMapsFromCraftLayers';
 
 // 贴图缓存 - 全局缓存避免重复加载
 const textureCache = new Map<string, THREE.Texture>();
+
+// 生成更可靠的缓存 key（使用长度 + 前后各50字符 + 中间50字符）
+function generateCacheKey(base64: string): string {
+  const len = base64.length;
+  if (len <= 200) return base64;
+  const start = base64.substring(0, 50);
+  const middle = base64.substring(Math.floor(len / 2) - 25, Math.floor(len / 2) + 25);
+  const end = base64.substring(len - 50);
+  return `${len}_${start}_${middle}_${end}`;
+}
 
 // 从 base64 加载贴图的 Hook
 const useTextureFromBase64 = (base64?: string): THREE.Texture | null => {
@@ -27,8 +39,8 @@ const useTextureFromBase64 = (base64?: string): THREE.Texture | null => {
       return;
     }
 
-    // 检查缓存
-    const cacheKey = base64.substring(0, 100); // 用前100字符作为key
+    // 检查缓存 - 使用更可靠的 key
+    const cacheKey = generateCacheKey(base64);
     if (textureCache.has(cacheKey)) {
       setTexture(textureCache.get(cacheKey)!);
       return;
@@ -76,14 +88,37 @@ const RENDER_MODES = [
   { value: 'hybrid', label: '混合模式' },
 ] as const;
 
-// 工艺类型到 PBR 参数映射
+// 几何体模式选项
+const GEOMETRY_MODES = [
+  { value: 'nested', label: '嵌套Group (当前)' },
+  { value: 'skinned', label: 'SkinnedMesh (实验)' },
+] as const;
+
+// 工艺类型到 PBR 参数映射（支持中文、英文大写、英文小写）
 const CRAFT_PBR_MAPPING: Record<string, { roughness: number; metalness: number; clearcoat: number }> = {
+  // 中文
   '烫金': { roughness: 0.2, metalness: 1.0, clearcoat: 0.5 },
   '烫银': { roughness: 0.15, metalness: 1.0, clearcoat: 0.6 },
   'UV': { roughness: 0.1, metalness: 0.0, clearcoat: 1.0 },
   '凹凸': { roughness: 0.8, metalness: 0.0, clearcoat: 0 },
   '法线': { roughness: 0.5, metalness: 0.0, clearcoat: 0 },
   '置换': { roughness: 0.6, metalness: 0.0, clearcoat: 0 },
+  '光油': { roughness: 0.1, metalness: 0.0, clearcoat: 1.0 },
+  // 英文大写
+  'HOTFOIL': { roughness: 0.2, metalness: 1.0, clearcoat: 0.5 },
+  'VARNISH': { roughness: 0.15, metalness: 1.0, clearcoat: 0.6 },
+  'EMBOSS': { roughness: 0.8, metalness: 0.0, clearcoat: 0 },
+  'NORMAL': { roughness: 0.5, metalness: 0.0, clearcoat: 0 },
+  'TEXTURE': { roughness: 0.6, metalness: 0.0, clearcoat: 0 },
+  'SPOT_UV': { roughness: 0.1, metalness: 0.0, clearcoat: 1.0 },
+  'DEBOSS': { roughness: 0.8, metalness: 0.0, clearcoat: 0 },
+  'CLIPMASK': { roughness: 0.7, metalness: 0.0, clearcoat: 0 },
+  // 英文小写
+  'hotfoil': { roughness: 0.2, metalness: 1.0, clearcoat: 0.5 },
+  'varnish': { roughness: 0.15, metalness: 1.0, clearcoat: 0.6 },
+  'emboss': { roughness: 0.8, metalness: 0.0, clearcoat: 0 },
+  'normal': { roughness: 0.5, metalness: 0.0, clearcoat: 0 },
+  'uv': { roughness: 0.1, metalness: 0.0, clearcoat: 1.0 },
 };
 
 export type HDRPreset = typeof HDR_PRESETS[number]['value'];
@@ -677,6 +712,13 @@ export const CyclesRenderPreview: React.FC = () => {
   const [domeHeight, setDomeHeight] = React.useState(DEFAULT_HDR_DOME.domeHeight);
   const [domeRadius, setDomeRadius] = React.useState(DEFAULT_HDR_DOME.domeRadius);
   const [domeScale, setDomeScale] = React.useState(DEFAULT_HDR_DOME.domeScale);
+  const [geometryMode, setGeometryMode] = React.useState<'nested' | 'skinned'>('nested');
+  const [showSkeleton, setShowSkeleton] = React.useState(false);
+  const [showWireframe, setShowWireframe] = React.useState(false);
+
+  // PBR 参数配置状态
+  const [pbrConfig, setPbrConfig] = React.useState<CraftPBRConfig>(DEFAULT_CRAFT_PBR_CONFIG);
+  const [selectedCraftType, setSelectedCraftType] = React.useState<CraftTypeId>('hotfoil');
 
   const handleClose = useCallback(() => {
     setCyclesPreviewOpen(false);
@@ -711,6 +753,10 @@ export const CyclesRenderPreview: React.FC = () => {
                 domeRadius={domeRadius}
                 domeScale={domeScale}
                 renderMode={cyclesRenderMode as 'realtime' | 'pathtracing' | 'hybrid'}
+                geometryMode={geometryMode}
+                showSkeleton={showSkeleton}
+                showWireframe={showWireframe}
+                pbrConfig={pbrConfig}
               />
             </Suspense>
             <CustomOrbitControls />
@@ -733,6 +779,16 @@ export const CyclesRenderPreview: React.FC = () => {
             onDomeHeightChange={setDomeHeight}
             onDomeRadiusChange={setDomeRadius}
             onDomeScaleChange={setDomeScale}
+            geometryMode={geometryMode}
+            onGeometryModeChange={setGeometryMode}
+            showSkeleton={showSkeleton}
+            onShowSkeletonChange={setShowSkeleton}
+            showWireframe={showWireframe}
+            onShowWireframeChange={setShowWireframe}
+            pbrConfig={pbrConfig}
+            onPbrConfigChange={setPbrConfig}
+            selectedCraftType={selectedCraftType}
+            onSelectedCraftTypeChange={setSelectedCraftType}
           />
         </div>
       </div>
@@ -751,9 +807,13 @@ interface CraftScene3DProps {
   domeRadius: number;
   domeScale: number;
   renderMode: 'realtime' | 'pathtracing' | 'hybrid';
+  geometryMode: 'nested' | 'skinned';
+  showSkeleton: boolean;
+  showWireframe: boolean;
+  pbrConfig: CraftPBRConfig;
 }
 
-const CraftScene3D: React.FC<CraftScene3DProps> = ({ panels, craftLayers, hdrPreset, foldProgress, foldSequence, rootPanelId, drivenMap, domeHeight, domeRadius, domeScale, renderMode }) => {
+const CraftScene3D: React.FC<CraftScene3DProps> = ({ panels, craftLayers, hdrPreset, foldProgress, foldSequence, rootPanelId, drivenMap, domeHeight, domeRadius, domeScale, renderMode, geometryMode, showSkeleton, showWireframe, pbrConfig }) => {
   // 🔥 增大缩放比例，让模型在 3D 空间中更大，匹配 HDR 环境球
   // 原来 0.02 太小，Figma 中 1000px 只变成 20 单位，现在变成 100 单位
   const scale = 0.1;
@@ -841,7 +901,7 @@ const CraftScene3D: React.FC<CraftScene3DProps> = ({ panels, craftLayers, hdrPre
   // 计算边界和整体中心（用于居中到原点）
   const bounds = useMemo(() => {
     if (!panels || panels.length === 0) {
-      return { minX: 0, minY: 0, centerX: 0, centerY: 0 };
+      return { minX: 0, minY: 0, maxX: 0, maxY: 0, centerX: 0, centerY: 0, width: 0, height: 0 };
     }
     let minX = Infinity, minY = Infinity;
     let maxX = -Infinity, maxY = -Infinity;
@@ -859,10 +919,23 @@ const CraftScene3D: React.FC<CraftScene3DProps> = ({ panels, craftLayers, hdrPre
     return {
       minX: isFinite(minX) ? minX : 0,
       minY: isFinite(minY) ? minY : 0,
+      maxX: isFinite(maxX) ? maxX : 0,
+      maxY: isFinite(maxY) ? maxY : 0,
       centerX: isFinite(minX) ? (minX + maxX) / 2 : 0,
       centerY: isFinite(minY) ? (minY + maxY) / 2 : 0,
+      width: isFinite(maxX) ? maxX - minX : 0,
+      height: isFinite(maxY) ? maxY - minY : 0,
     };
   }, [panels]);
+
+  // 生成 PBR 贴图（从工艺层）
+  const pbrMaps = usePBRMapsFromCraftLayers({
+    craftLayers,
+    width: bounds.width,
+    height: bounds.height,
+    enabled: renderMode === 'pathtracing' || renderMode === 'hybrid',
+    pbrConfig,
+  });
 
   // 计算折叠角度 (0-90度)
   const foldAngle = foldProgress * Math.PI / 2;
@@ -914,21 +987,43 @@ const CraftScene3D: React.FC<CraftScene3DProps> = ({ panels, craftLayers, hdrPre
       {/* 使用嵌套 Group 方案实现折叠 */}
       {hasHierarchy ? (
         <>
-          <NestedGroupFold
-            panels={panels}
-            drivenMap={drivenMap}
-            rootPanelId={rootPanelId}
-            foldProgress={foldProgress}
-            sequence={foldSequence}
-            scale={scale}
-            thickness={thickness}
-            offsetX={bounds.minX}
-            offsetY={bounds.minY}
-            centerX={bounds.centerX}
-            centerY={bounds.centerY}
-            craftLayers={craftLayers}
-            renderConfig={renderConfig}
-          />
+          {geometryMode === 'skinned' ? (
+            <SkinnedMeshBridge
+              panels={panels}
+              drivenMap={drivenMap}
+              rootPanelId={rootPanelId}
+              foldProgress={foldProgress}
+              foldSequence={foldSequence}
+              scale={scale}
+              thickness={thickness}
+              offsetX={bounds.minX}
+              offsetY={bounds.minY}
+              centerX={bounds.centerX}
+              centerY={bounds.centerY}
+              craftLayers={craftLayers}
+              renderConfig={renderConfig}
+              showSkeleton={showSkeleton}
+              showWireframe={showWireframe}
+              pbrConfig={pbrConfig}
+            />
+          ) : (
+            <NestedGroupFold
+              panels={panels}
+              drivenMap={drivenMap}
+              rootPanelId={rootPanelId}
+              foldProgress={foldProgress}
+              sequence={foldSequence}
+              scale={scale}
+              thickness={thickness}
+              offsetX={bounds.minX}
+              offsetY={bounds.minY}
+              centerX={bounds.centerX}
+              centerY={bounds.centerY}
+              craftLayers={craftLayers}
+              renderConfig={renderConfig}
+              pbrMaps={pbrMaps}
+            />
+          )}
           {/* 渲染不在层级中的独立面板 */}
           {orphanPanels.map((panel) => (
             <OrphanPanelMesh
@@ -969,6 +1064,17 @@ interface ControlPanelProps {
   onDomeHeightChange: (height: number) => void;
   onDomeRadiusChange: (radius: number) => void;
   onDomeScaleChange: (scale: number) => void;
+  geometryMode: 'nested' | 'skinned';
+  onGeometryModeChange: (mode: 'nested' | 'skinned') => void;
+  showSkeleton: boolean;
+  onShowSkeletonChange: (show: boolean) => void;
+  showWireframe: boolean;
+  onShowWireframeChange: (show: boolean) => void;
+  // PBR 参数
+  pbrConfig: CraftPBRConfig;
+  onPbrConfigChange: (config: CraftPBRConfig) => void;
+  selectedCraftType: CraftTypeId;
+  onSelectedCraftTypeChange: (type: CraftTypeId) => void;
 }
 
 const SidebarControlPanel: React.FC<ControlPanelProps> = ({
@@ -985,6 +1091,16 @@ const SidebarControlPanel: React.FC<ControlPanelProps> = ({
   onDomeHeightChange,
   onDomeRadiusChange,
   onDomeScaleChange,
+  geometryMode,
+  onGeometryModeChange,
+  showSkeleton,
+  onShowSkeletonChange,
+  showWireframe,
+  onShowWireframeChange,
+  pbrConfig,
+  onPbrConfigChange,
+  selectedCraftType,
+  onSelectedCraftTypeChange,
 }) => {
   return (
     <div>
@@ -1010,6 +1126,45 @@ const SidebarControlPanel: React.FC<ControlPanelProps> = ({
           ))}
         </select>
       </div>
+
+      {/* 几何体模式 */}
+      <div style={controlStyles.section}>
+        <label style={controlStyles.label}>几何体模式</label>
+        <select
+          style={controlStyles.select}
+          value={geometryMode}
+          onChange={(e) => onGeometryModeChange(e.target.value as 'nested' | 'skinned')}
+        >
+          {GEOMETRY_MODES.map((m) => (
+            <option key={m.value} value={m.value}>{m.label}</option>
+          ))}
+        </select>
+      </div>
+
+      {/* SkinnedMesh 调试选项 */}
+      {geometryMode === 'skinned' && (
+        <div style={controlStyles.section}>
+          <label style={controlStyles.label}>调试选项</label>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', color: SEMANTIC_TOKENS.color.text.primary }}>
+              <input
+                type="checkbox"
+                checked={showSkeleton}
+                onChange={(e) => onShowSkeletonChange(e.target.checked)}
+              />
+              显示骨骼
+            </label>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', color: SEMANTIC_TOKENS.color.text.primary }}>
+              <input
+                type="checkbox"
+                checked={showWireframe}
+                onChange={(e) => onShowWireframeChange(e.target.checked)}
+              />
+              显示线框
+            </label>
+          </div>
+        </div>
+      )}
 
       {/* HDR 环境 */}
       <div style={controlStyles.section}>
@@ -1100,6 +1255,14 @@ const SidebarControlPanel: React.FC<ControlPanelProps> = ({
         </div>
       </div>
 
+      {/* PBR 工艺参数调节 */}
+      <PBRCraftParamPanel
+        pbrConfig={pbrConfig}
+        onPbrConfigChange={onPbrConfigChange}
+        selectedCraftType={selectedCraftType}
+        onSelectedCraftTypeChange={onSelectedCraftTypeChange}
+      />
+
       {/* 刀版图面板列表 */}
       <div style={controlStyles.section}>
         <label style={controlStyles.label}>
@@ -1123,6 +1286,180 @@ const SidebarControlPanel: React.FC<ControlPanelProps> = ({
     </div>
   );
 };
+
+// 工艺类型配置
+const CRAFT_TYPE_OPTIONS: { id: CraftTypeId; label: string; color: string }[] = [
+  { id: 'hotfoil', label: '烫金', color: '#d4af37' },
+  { id: 'silver', label: '烫银', color: '#c0c0c0' },
+  { id: 'uv', label: 'UV光油', color: '#00ff88' },
+];
+
+// PBR 工艺参数调节面板
+interface PBRCraftParamPanelProps {
+  pbrConfig: CraftPBRConfig;
+  onPbrConfigChange: (config: CraftPBRConfig) => void;
+  selectedCraftType: CraftTypeId;
+  onSelectedCraftTypeChange: (type: CraftTypeId) => void;
+}
+
+const PBRCraftParamPanel: React.FC<PBRCraftParamPanelProps> = ({
+  pbrConfig,
+  onPbrConfigChange,
+  selectedCraftType,
+  onSelectedCraftTypeChange,
+}) => {
+  const currentParams = pbrConfig[selectedCraftType];
+
+  const updateParam = (key: keyof typeof currentParams, value: number) => {
+    console.log(`🎛️ PBR参数更新: ${selectedCraftType}.${key} = ${value}`);
+    const newConfig = {
+      ...pbrConfig,
+      [selectedCraftType]: {
+        ...currentParams,
+        [key]: value,
+      },
+    };
+    console.log('🎛️ 新的 pbrConfig:', JSON.stringify(newConfig, null, 2));
+    onPbrConfigChange(newConfig);
+  };
+
+  const resetToDefault = () => {
+    onPbrConfigChange({
+      ...pbrConfig,
+      [selectedCraftType]: DEFAULT_CRAFT_PBR_CONFIG[selectedCraftType],
+    });
+  };
+
+  return (
+    <div style={controlStyles.section}>
+      <label style={controlStyles.label}>PBR 工艺参数</label>
+
+      {/* 工艺类型切换按钮 */}
+      <div style={{ display: 'flex', gap: '4px', marginBottom: '12px' }}>
+        {CRAFT_TYPE_OPTIONS.map((opt) => (
+          <button
+            key={opt.id}
+            onClick={() => onSelectedCraftTypeChange(opt.id)}
+            style={{
+              flex: 1,
+              padding: '6px 8px',
+              fontSize: '11px',
+              fontWeight: selectedCraftType === opt.id ? 600 : 400,
+              borderRadius: '4px',
+              border: selectedCraftType === opt.id
+                ? `2px solid ${opt.color}`
+                : `1px solid ${SEMANTIC_TOKENS.color.border.default}`,
+              background: selectedCraftType === opt.id
+                ? `${opt.color}20`
+                : SEMANTIC_TOKENS.color.bg.secondary,
+              color: selectedCraftType === opt.id
+                ? opt.color
+                : SEMANTIC_TOKENS.color.text.primary,
+              cursor: 'pointer',
+              transition: 'all 0.15s ease',
+            }}
+          >
+            <span style={{
+              display: 'inline-block',
+              width: '6px',
+              height: '6px',
+              borderRadius: '50%',
+              backgroundColor: opt.color,
+              marginRight: '4px',
+            }} />
+            {opt.label}
+          </button>
+        ))}
+      </div>
+
+      {/* 参数滑块 */}
+      <PBRSlider
+        label="金属度"
+        value={currentParams.metalness}
+        min={0}
+        max={1}
+        step={0.01}
+        onChange={(v) => updateParam('metalness', v)}
+      />
+      <PBRSlider
+        label="粗糙度"
+        value={currentParams.roughness}
+        min={0}
+        max={1}
+        step={0.01}
+        onChange={(v) => updateParam('roughness', v)}
+      />
+      <PBRSlider
+        label="清漆强度"
+        value={currentParams.clearcoat}
+        min={0}
+        max={1}
+        step={0.01}
+        onChange={(v) => updateParam('clearcoat', v)}
+      />
+      <PBRSlider
+        label="清漆粗糙度"
+        value={currentParams.clearcoatRoughness}
+        min={0}
+        max={1}
+        step={0.01}
+        onChange={(v) => updateParam('clearcoatRoughness', v)}
+      />
+
+      {/* 重置按钮 */}
+      <button
+        onClick={resetToDefault}
+        style={{
+          width: '100%',
+          padding: '6px',
+          marginTop: '8px',
+          fontSize: '11px',
+          borderRadius: '4px',
+          border: `1px solid ${SEMANTIC_TOKENS.color.border.default}`,
+          background: SEMANTIC_TOKENS.color.bg.secondary,
+          color: SEMANTIC_TOKENS.color.text.secondary,
+          cursor: 'pointer',
+        }}
+      >
+        重置为默认值
+      </button>
+    </div>
+  );
+};
+
+// PBR 参数滑块组件
+interface PBRSliderProps {
+  label: string;
+  value: number;
+  min: number;
+  max: number;
+  step: number;
+  onChange: (value: number) => void;
+}
+
+const PBRSlider: React.FC<PBRSliderProps> = ({ label, value, min, max, step, onChange }) => (
+  <div style={{ marginBottom: '8px' }}>
+    <div style={{
+      display: 'flex',
+      justifyContent: 'space-between',
+      marginBottom: '4px',
+      fontSize: '11px',
+      color: SEMANTIC_TOKENS.color.text.secondary,
+    }}>
+      <span>{label}</span>
+      <span>{value.toFixed(2)}</span>
+    </div>
+    <input
+      type="range"
+      min={min}
+      max={max}
+      step={step}
+      value={value}
+      onChange={(e) => onChange(Number(e.target.value))}
+      style={{ width: '100%', cursor: 'pointer' }}
+    />
+  </div>
+);
 
 // 工艺图层项组件
 const CraftLayerItem: React.FC<{ layer: MarkedLayer }> = ({ layer }) => {

@@ -38,6 +38,8 @@ type SdfJob = {
     rippleWidth?: number;
     rippleDash?: number;
     heightScale?: number;
+    maskMode?: 'alpha' | 'luminance';
+    maskInvert?: boolean;
   };
 };
 
