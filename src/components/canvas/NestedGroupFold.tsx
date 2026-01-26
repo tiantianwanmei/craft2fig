@@ -47,6 +47,9 @@ interface Node3D {
   foldDirection: number;
   // 子节点
   children: Node3D[];
+  // 分步折叠参数
+  foldStartProgress: number;  // 开始折叠的全局进度 (0-1)
+  foldEndProgress: number;    // 结束折叠的全局进度 (0-1)
 }
 
 interface NestedGroupFoldProps {
@@ -54,6 +57,7 @@ interface NestedGroupFoldProps {
   drivenMap: Record<string, string[]>;
   rootPanelId: string | null;
   foldProgress: number;
+  sequence?: string[];  // 折叠顺序数组
   scale?: number;
   thickness?: number;
   offsetX: number;
@@ -140,18 +144,39 @@ function detectSharedEdge(
 }
 
 /**
+ * 计算面板的局部折叠进度
+ * 根据全局进度和面板的折叠时间段计算
+ */
+function calculateLocalProgress(
+  globalProgress: number,
+  startProgress: number,
+  endProgress: number
+): number {
+  if (globalProgress <= startProgress) return 0;
+  if (globalProgress >= endProgress) return 1;
+  return (globalProgress - startProgress) / (endProgress - startProgress);
+}
+
+/**
  * 单个面板的3D渲染组件
  */
 const Panel3D: React.FC<{
   node: Node3D;
-  foldProgress: number;
+  foldProgress: number;  // 全局折叠进度
   scale: number;
   thickness: number;
 }> = ({ node, foldProgress, scale, thickness }) => {
   const groupRef = useRef<THREE.Group>(null);
 
-  // 计算当前折叠角度
-  const foldAngle = foldProgress * (Math.PI / 2) * node.foldDirection;
+  // 计算当前面板的局部折叠进度
+  const localProgress = calculateLocalProgress(
+    foldProgress,
+    node.foldStartProgress,
+    node.foldEndProgress
+  );
+
+  // 计算当前折叠角度（使用局部进度）
+  const foldAngle = localProgress * (Math.PI / 2) * node.foldDirection;
 
   // 使用 useFrame 更新旋转
   useFrame(() => {
@@ -202,6 +227,7 @@ export const NestedGroupFold: React.FC<NestedGroupFoldProps> = ({
   drivenMap,
   rootPanelId,
   foldProgress,
+  sequence = [],  // 折叠顺序
   scale = 0.1,
   thickness = 0.5,
   offsetX,
@@ -223,6 +249,39 @@ export const NestedGroupFold: React.FC<NestedGroupFoldProps> = ({
     });
     return map;
   }, [panels, offsetX, offsetY]);
+
+  // 计算每个面板的折叠时间段
+  const foldTimingMap = useMemo(() => {
+    const timingMap = new Map<string, { start: number; end: number }>();
+
+    // 如果没有 sequence，所有面板同时折叠
+    if (sequence.length === 0) {
+      panelDataMap.forEach((_, id) => {
+        timingMap.set(id, { start: 0, end: 1 });
+      });
+      return timingMap;
+    }
+
+    // 根据 sequence 计算每个面板的折叠时间段
+    // 每个面板占用相等的时间段，但有重叠以实现平滑过渡
+    const totalPanels = sequence.length;
+    const overlapRatio = 0.3; // 30% 重叠，让动画更流畅
+    const segmentDuration = 1 / (totalPanels * (1 - overlapRatio) + overlapRatio);
+
+    sequence.forEach((panelId, index) => {
+      const start = index * segmentDuration * (1 - overlapRatio);
+      const end = Math.min(1, start + segmentDuration);
+      timingMap.set(panelId, { start, end });
+    });
+
+    // 根面板不折叠
+    if (rootPanelId) {
+      timingMap.set(rootPanelId, { start: 0, end: 0 });
+    }
+
+    console.log('⏱️ 折叠时间段:', Object.fromEntries(timingMap));
+    return timingMap;
+  }, [sequence, panelDataMap, rootPanelId]);
 
   // 构建节点树
   const rootNode = useMemo(() => {
@@ -323,6 +382,9 @@ export const NestedGroupFold: React.FC<NestedGroupFoldProps> = ({
           rotationAxis,
           foldDirection,
           children: buildChildren(childId, childPanel),
+          // 从 foldTimingMap 获取折叠时间段
+          foldStartProgress: foldTimingMap.get(childId)?.start ?? 0,
+          foldEndProgress: foldTimingMap.get(childId)?.end ?? 1,
         };
 
         children.push(childNode);
@@ -340,10 +402,12 @@ export const NestedGroupFold: React.FC<NestedGroupFoldProps> = ({
       rotationAxis: new THREE.Vector3(0, 1, 0),
       foldDirection: 0,
       children: buildChildren(rootPanelId, rootPanel),
+      foldStartProgress: 0,
+      foldEndProgress: 0,  // 根节点不折叠
     };
 
     return root;
-  }, [panelDataMap, drivenMap, rootPanelId, scale]);
+  }, [panelDataMap, drivenMap, rootPanelId, scale, foldTimingMap]);
 
   if (!rootNode || panels.length === 0) return null;
 

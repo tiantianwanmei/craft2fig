@@ -698,6 +698,7 @@ export const CyclesRenderPreview: React.FC = () => {
                 craftLayers={markedLayers}
                 hdrPreset={cyclesHDRPreset as HDRPreset}
                 foldProgress={foldProgress}
+                foldSequence={foldSequence}
                 rootPanelId={rootPanelId}
                 drivenMap={drivenMap}
                 domeHeight={domeHeight}
@@ -737,6 +738,7 @@ interface CraftScene3DProps {
   craftLayers: MarkedLayer[];
   hdrPreset: HDRPreset;
   foldProgress: number;
+  foldSequence: string[];
   rootPanelId: string | null;
   drivenMap: Record<string, string[]>;
   domeHeight: number;
@@ -745,7 +747,7 @@ interface CraftScene3DProps {
   renderMode: 'realtime' | 'pathtracing' | 'hybrid';
 }
 
-const CraftScene3D: React.FC<CraftScene3DProps> = ({ panels, craftLayers, hdrPreset, foldProgress, rootPanelId, drivenMap, domeHeight, domeRadius, domeScale, renderMode }) => {
+const CraftScene3D: React.FC<CraftScene3DProps> = ({ panels, craftLayers, hdrPreset, foldProgress, foldSequence, rootPanelId, drivenMap, domeHeight, domeRadius, domeScale, renderMode }) => {
   // 🔥 增大缩放比例，让模型在 3D 空间中更大，匹配 HDR 环境球
   // 原来 0.02 太小，Figma 中 1000px 只变成 20 单位，现在变成 100 单位
   const scale = 0.1;
@@ -901,6 +903,7 @@ const CraftScene3D: React.FC<CraftScene3DProps> = ({ panels, craftLayers, hdrPre
             drivenMap={drivenMap}
             rootPanelId={rootPanelId}
             foldProgress={foldProgress}
+            sequence={foldSequence}
             scale={scale}
             thickness={thickness}
             offsetX={bounds.minX}
