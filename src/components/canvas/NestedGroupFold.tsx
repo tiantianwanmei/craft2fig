@@ -18,8 +18,8 @@ const textureCache = new Map<string, THREE.Texture>();
 // shapeMask 专用缓存（不同的翻转设置）
 const shapeMaskCache = new Map<string, THREE.Texture>();
 
-// 从 base64 加载贴图的 Hook（用于印刷面贴图，X翻转，Y不翻转）
-const useTextureFromBase64 = (base64?: string): THREE.Texture | null => {
+// 从 base64 加载贴图的 Hook（用于印刷面贴图，支持动态X翻转）
+const useTextureFromBase64 = (base64?: string, flipX: boolean = true): THREE.Texture | null => {
   const [texture, setTexture] = useState<THREE.Texture | null>(null);
 
   useEffect(() => {
@@ -28,8 +28,8 @@ const useTextureFromBase64 = (base64?: string): THREE.Texture | null => {
       return;
     }
 
-    // 检查缓存
-    const cacheKey = base64.substring(0, 100);
+    // 缓存key包含翻转状态
+    const cacheKey = `${flipX ? 'flipX_' : ''}${base64.substring(0, 100)}`;
     if (textureCache.has(cacheKey)) {
       setTexture(textureCache.get(cacheKey)!);
       return;
@@ -42,13 +42,22 @@ const useTextureFromBase64 = (base64?: string): THREE.Texture | null => {
       dataUrl,
       (loadedTexture) => {
         loadedTexture.colorSpace = THREE.SRGBColorSpace;
-        loadedTexture.wrapS = THREE.RepeatWrapping;
         loadedTexture.wrapT = THREE.ClampToEdgeWrapping;
-        // X 轴翻转（水平镜像）
-        loadedTexture.repeat.x = -1;
-        loadedTexture.offset.x = 1;
         // Y 轴不翻转
         loadedTexture.flipY = false;
+
+        if (flipX) {
+          // X 轴翻转（水平镜像）- 用于左侧面板
+          loadedTexture.wrapS = THREE.RepeatWrapping;
+          loadedTexture.repeat.x = -1;
+          loadedTexture.offset.x = 1;
+        } else {
+          // 不翻转X - 用于右侧面板
+          loadedTexture.wrapS = THREE.ClampToEdgeWrapping;
+          loadedTexture.repeat.x = 1;
+          loadedTexture.offset.x = 0;
+        }
+
         loadedTexture.needsUpdate = true;
         textureCache.set(cacheKey, loadedTexture);
         setTexture(loadedTexture);
@@ -59,7 +68,7 @@ const useTextureFromBase64 = (base64?: string): THREE.Texture | null => {
         setTexture(null);
       }
     );
-  }, [base64]);
+  }, [base64, flipX]);
 
   return texture;
 };
@@ -150,6 +159,8 @@ interface Node3D {
   // 分步折叠参数
   foldStartProgress: number;  // 开始折叠的全局进度 (0-1)
   foldEndProgress: number;    // 结束折叠的全局进度 (0-1)
+  // 贴图是否需要X翻转（根据面板相对位置决定）
+  needsTextureFlipX: boolean;
 }
 
 // 工艺 PBR 参数映射
@@ -312,7 +323,7 @@ const RootPanelMesh: React.FC<{
   // 外表面颜色（折叠后朝外的面）
   const outerColor = '#ffffff';
   // 侧边颜色
-  const sideColor = '#e0e0e0';
+  const sideColor = '#e8e8e8';
 
   // 外表面使用 shapeMask（面板外轮廓）而不是 texture（包含内部透明区域）
   const outerAlphaMap = shapeMaskTexture || texture;
@@ -350,25 +361,54 @@ const RootPanelMesh: React.FC<{
           alphaTest={0.01}
         />
       </mesh>
-      {/* 前侧边 */}
-      <mesh castShadow receiveShadow position={[0, 0, height / 2]}>
+      {/* 侧边 - 使用shapeMask做透明裁剪 */}
+      {/* 前侧边 (Z+) */}
+      <mesh position={[0, 0, height / 2]}>
         <planeGeometry args={[width, thickness]} />
-        <meshStandardMaterial color={sideColor} roughness={0.8} />
+        <meshStandardMaterial
+          color={sideColor}
+          roughness={0.8}
+          side={THREE.DoubleSide}
+          alphaMap={outerAlphaMap}
+          transparent={true}
+          alphaTest={0.01}
+        />
       </mesh>
-      {/* 后侧边 */}
-      <mesh castShadow receiveShadow position={[0, 0, -height / 2]} rotation={[0, Math.PI, 0]}>
+      {/* 后侧边 (Z-) */}
+      <mesh position={[0, 0, -height / 2]} rotation={[0, Math.PI, 0]}>
         <planeGeometry args={[width, thickness]} />
-        <meshStandardMaterial color={sideColor} roughness={0.8} />
+        <meshStandardMaterial
+          color={sideColor}
+          roughness={0.8}
+          side={THREE.DoubleSide}
+          alphaMap={outerAlphaMap}
+          transparent={true}
+          alphaTest={0.01}
+        />
       </mesh>
-      {/* 左侧边 */}
-      <mesh castShadow receiveShadow position={[-width / 2, 0, 0]} rotation={[0, -Math.PI / 2, 0]}>
+      {/* 左侧边 (X-) */}
+      <mesh position={[-width / 2, 0, 0]} rotation={[0, -Math.PI / 2, 0]}>
         <planeGeometry args={[height, thickness]} />
-        <meshStandardMaterial color={sideColor} roughness={0.8} />
+        <meshStandardMaterial
+          color={sideColor}
+          roughness={0.8}
+          side={THREE.DoubleSide}
+          alphaMap={outerAlphaMap}
+          transparent={true}
+          alphaTest={0.01}
+        />
       </mesh>
-      {/* 右侧边 */}
-      <mesh castShadow receiveShadow position={[width / 2, 0, 0]} rotation={[0, Math.PI / 2, 0]}>
+      {/* 右侧边 (X+) */}
+      <mesh position={[width / 2, 0, 0]} rotation={[0, Math.PI / 2, 0]}>
         <planeGeometry args={[height, thickness]} />
-        <meshStandardMaterial color={sideColor} roughness={0.8} />
+        <meshStandardMaterial
+          color={sideColor}
+          roughness={0.8}
+          side={THREE.DoubleSide}
+          alphaMap={outerAlphaMap}
+          transparent={true}
+          alphaTest={0.01}
+        />
       </mesh>
     </group>
   );
@@ -386,10 +426,10 @@ const Panel3D: React.FC<{
 }> = ({ node, foldProgress, scale, thickness, renderConfig }) => {
   const groupRef = useRef<THREE.Group>(null);
 
-  // 加载面板贴图
-  const panelTexture = useTextureFromBase64(node.panel.pngPreview);
-  const normalTexture = useTextureFromBase64(node.panel.normalPreview);
-  const bumpTexture = useTextureFromBase64(node.panel.bumpPreview);
+  // 加载面板贴图（根据面板位置决定是否X翻转）
+  const panelTexture = useTextureFromBase64(node.panel.pngPreview, node.needsTextureFlipX);
+  const normalTexture = useTextureFromBase64(node.panel.normalPreview, node.needsTextureFlipX);
+  const bumpTexture = useTextureFromBase64(node.panel.bumpPreview, node.needsTextureFlipX);
   // 加载面板外轮廓遮罩（用于外表面透明裁剪）
   const shapeMaskTexture = useShapeMaskFromBase64(node.panel.shapeMask);
 
@@ -462,25 +502,54 @@ const Panel3D: React.FC<{
             alphaTest={0.01}
           />
         </mesh>
-        {/* 前侧边 */}
-        <mesh castShadow receiveShadow position={[0, 0, height / 2]}>
+        {/* 侧边 - 使用shapeMask做透明裁剪 */}
+        {/* 前侧边 (Z+) */}
+        <mesh position={[0, 0, height / 2]}>
           <planeGeometry args={[width, thickness]} />
-          <meshStandardMaterial color={sideColor} roughness={0.8} />
+          <meshStandardMaterial
+            color={sideColor}
+            roughness={0.8}
+            side={THREE.DoubleSide}
+            alphaMap={outerAlphaMap}
+            transparent={true}
+            alphaTest={0.01}
+          />
         </mesh>
-        {/* 后侧边 */}
-        <mesh castShadow receiveShadow position={[0, 0, -height / 2]} rotation={[0, Math.PI, 0]}>
+        {/* 后侧边 (Z-) */}
+        <mesh position={[0, 0, -height / 2]} rotation={[0, Math.PI, 0]}>
           <planeGeometry args={[width, thickness]} />
-          <meshStandardMaterial color={sideColor} roughness={0.8} />
+          <meshStandardMaterial
+            color={sideColor}
+            roughness={0.8}
+            side={THREE.DoubleSide}
+            alphaMap={outerAlphaMap}
+            transparent={true}
+            alphaTest={0.01}
+          />
         </mesh>
-        {/* 左侧边 */}
-        <mesh castShadow receiveShadow position={[-width / 2, 0, 0]} rotation={[0, -Math.PI / 2, 0]}>
+        {/* 左侧边 (X-) */}
+        <mesh position={[-width / 2, 0, 0]} rotation={[0, -Math.PI / 2, 0]}>
           <planeGeometry args={[height, thickness]} />
-          <meshStandardMaterial color={sideColor} roughness={0.8} />
+          <meshStandardMaterial
+            color={sideColor}
+            roughness={0.8}
+            side={THREE.DoubleSide}
+            alphaMap={outerAlphaMap}
+            transparent={true}
+            alphaTest={0.01}
+          />
         </mesh>
-        {/* 右侧边 */}
-        <mesh castShadow receiveShadow position={[width / 2, 0, 0]} rotation={[0, Math.PI / 2, 0]}>
+        {/* 右侧边 (X+) */}
+        <mesh position={[width / 2, 0, 0]} rotation={[0, Math.PI / 2, 0]}>
           <planeGeometry args={[height, thickness]} />
-          <meshStandardMaterial color={sideColor} roughness={0.8} />
+          <meshStandardMaterial
+            color={sideColor}
+            roughness={0.8}
+            side={THREE.DoubleSide}
+            alphaMap={outerAlphaMap}
+            transparent={true}
+            alphaTest={0.01}
+          />
         </mesh>
 
         {/* 递归渲染子节点 */}
@@ -714,6 +783,11 @@ export const NestedGroupFold: React.FC<NestedGroupFoldProps> = ({
           foldDirection = childPanel.x > parentPanel.x ? 1 : -1;
         }
 
+        // 决定贴图是否需要X翻转
+        // 右侧面板（绕Z轴正向旋转）不需要X翻转，其他面板需要
+        const isRightSidePanel = edge?.type === 'vertical' && childPanel.x > parentPanel.x;
+        const needsTextureFlipX = !isRightSidePanel;
+
         const childNode: Node3D = {
           id: childId,
           panel: childPanel,
@@ -725,6 +799,7 @@ export const NestedGroupFold: React.FC<NestedGroupFoldProps> = ({
           // 从 foldTimingMap 获取折叠时间段
           foldStartProgress: foldTimingMap.get(childId)?.start ?? 0,
           foldEndProgress: foldTimingMap.get(childId)?.end ?? 1,
+          needsTextureFlipX,
         };
 
         children.push(childNode);
@@ -744,6 +819,7 @@ export const NestedGroupFold: React.FC<NestedGroupFoldProps> = ({
       children: buildChildren(rootPanelId, rootPanel),
       foldStartProgress: 0,
       foldEndProgress: 0,  // 根节点不折叠
+      needsTextureFlipX: true,  // 根节点需要X翻转
     };
 
     return root;

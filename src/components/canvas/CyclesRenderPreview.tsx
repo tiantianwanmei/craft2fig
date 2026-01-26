@@ -95,7 +95,7 @@ const DEFAULT_HDR_DOME = {
   groundProjection: true,
   domeHeight: 15,       // 相机高度（drei 默认 15）
   domeRadius: 120,      // 虚拟世界半径（drei 默认 60，增大避免边界）
-  domeScale: 1000,      // 投影球体大小（drei 默认 1000）
+  domeScale: 10000,     // 投影球体大小（增大到 10000 避免穿帮）
 };
 
 // 自定义 OrbitControls - 避免 drei 的 URL 问题
@@ -554,19 +554,25 @@ interface OrphanPanelMeshProps {
   scale: number;
   offsetX: number;
   offsetY: number;
+  centerX: number;
+  centerY: number;
   renderConfig: RenderConfig;
 }
 
 const OrphanPanelMesh: React.FC<OrphanPanelMeshProps> = ({
-  panel, craftLayers, thickness, scale, offsetX, offsetY, renderConfig
+  panel, craftLayers, thickness, scale, offsetX, offsetY, centerX, centerY, renderConfig
 }) => {
   const x = ((panel as any).x ?? panel.bounds?.x ?? 0) - offsetX;
   const y = ((panel as any).y ?? panel.bounds?.y ?? 0) - offsetY;
   const w = (panel as any).width ?? panel.bounds?.width ?? 100;
   const h = (panel as any).height ?? panel.bounds?.height ?? 50;
 
-  const posX = x * scale;
-  const posZ = y * scale;
+  // 计算居中偏移
+  const centerOffsetX = (centerX - offsetX) * scale;
+  const centerOffsetZ = (centerY - offsetY) * scale;
+
+  const posX = x * scale - centerOffsetX;
+  const posZ = y * scale - centerOffsetZ;
   const width = w * scale;
   const height = h * scale;
 
@@ -832,20 +838,30 @@ const CraftScene3D: React.FC<CraftScene3DProps> = ({ panels, craftLayers, hdrPre
     return map;
   }, [panels, craftLayers]);
 
-  // 计算边界
+  // 计算边界和整体中心（用于居中到原点）
   const bounds = useMemo(() => {
     if (!panels || panels.length === 0) {
-      return { minX: 0, minY: 0 };
+      return { minX: 0, minY: 0, centerX: 0, centerY: 0 };
     }
     let minX = Infinity, minY = Infinity;
+    let maxX = -Infinity, maxY = -Infinity;
     panels.forEach(v => {
       if (!v) return;
       const x = (v as any).x ?? v.bounds?.x ?? 0;
       const y = (v as any).y ?? v.bounds?.y ?? 0;
+      const w = (v as any).width ?? v.bounds?.width ?? 100;
+      const h = (v as any).height ?? v.bounds?.height ?? 50;
       minX = Math.min(minX, x);
       minY = Math.min(minY, y);
+      maxX = Math.max(maxX, x + w);
+      maxY = Math.max(maxY, y + h);
     });
-    return { minX: isFinite(minX) ? minX : 0, minY: isFinite(minY) ? minY : 0 };
+    return {
+      minX: isFinite(minX) ? minX : 0,
+      minY: isFinite(minY) ? minY : 0,
+      centerX: isFinite(minX) ? (minX + maxX) / 2 : 0,
+      centerY: isFinite(minY) ? (minY + maxY) / 2 : 0,
+    };
   }, [panels]);
 
   // 计算折叠角度 (0-90度)
@@ -908,6 +924,10 @@ const CraftScene3D: React.FC<CraftScene3DProps> = ({ panels, craftLayers, hdrPre
             thickness={thickness}
             offsetX={bounds.minX}
             offsetY={bounds.minY}
+            centerX={bounds.centerX}
+            centerY={bounds.centerY}
+            craftLayers={craftLayers}
+            renderConfig={renderConfig}
           />
           {/* 渲染不在层级中的独立面板 */}
           {orphanPanels.map((panel) => (
@@ -919,6 +939,8 @@ const CraftScene3D: React.FC<CraftScene3DProps> = ({ panels, craftLayers, hdrPre
               scale={scale}
               offsetX={bounds.minX}
               offsetY={bounds.minY}
+              centerX={bounds.centerX}
+              centerY={bounds.centerY}
               renderConfig={renderConfig}
             />
           ))}
@@ -1010,8 +1032,8 @@ const SidebarControlPanel: React.FC<ControlPanelProps> = ({
           <input
             type="range"
             min="5"
-            max="50"
-            step="1"
+            max="500"
+            step="5"
             value={domeHeight}
             onChange={(e) => onDomeHeightChange(Number(e.target.value))}
             style={{ flex: 1, cursor: 'pointer' }}
@@ -1029,8 +1051,8 @@ const SidebarControlPanel: React.FC<ControlPanelProps> = ({
           <input
             type="range"
             min="60"
-            max="500"
-            step="10"
+            max="5000"
+            step="50"
             value={domeRadius}
             onChange={(e) => onDomeRadiusChange(Number(e.target.value))}
             style={{ flex: 1, cursor: 'pointer' }}
@@ -1047,9 +1069,9 @@ const SidebarControlPanel: React.FC<ControlPanelProps> = ({
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
           <input
             type="range"
-            min="500"
-            max="5000"
-            step="100"
+            min="1000"
+            max="50000"
+            step="1000"
             value={domeScale}
             onChange={(e) => onDomeScaleChange(Number(e.target.value))}
             style={{ flex: 1, cursor: 'pointer' }}

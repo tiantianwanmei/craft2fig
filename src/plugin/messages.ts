@@ -374,36 +374,110 @@ export async function sendSavedVectors(): Promise<void> {
     // 解析失败
   }
 
-  // 刀版图面片命名模式：
-  // - 纯数字: 1, 2, 3
-  // - 数字-数字T/B: 1-1T, 1-2B, 2-1T
-  // - 字母: L, R, F, H, HT, HB 等
+  // 刀版图面片命名模式
   const PANEL_NAME_PATTERN = /^(\d+(-\d+[TB]?)?|[A-Z]+\d*)$/i;
 
-  // 先收集所有 clipmask vector 的 IDs（用于排除）
+  // 收集所有 clipmask vector 的 IDs
   const allClipVectorIds = new Set<string>();
 
   console.log('🔍 sendSavedVectors - savedIds:', savedIds.length);
-  console.log('🔍 sendSavedVectors - sourceFrame children:', 'children' in sourceFrame ? sourceFrame.children.length : 0);
 
   if (savedIds.length > 0) {
-    // 使用保存的 IDs
     savedIds.forEach(id => allClipVectorIds.add(id));
-    console.log('🔍 Using saved IDs:', savedIds);
   } else if ('children' in sourceFrame) {
-    // 自动检测：收集所有符合命名模式的 Vector
     for (const child of sourceFrame.children) {
-      const isPanelName = PANEL_NAME_PATTERN.test(child.name.trim());
-      const isVectorType = child.type === 'VECTOR';
-      console.log(`  Child: ${child.name} (${child.type}) - isPanelName: ${isPanelName}, isVector: ${isVectorType}`);
-      if (isVectorType && isPanelName) {
+      if (child.type === 'VECTOR' && PANEL_NAME_PATTERN.test(child.name.trim())) {
         allClipVectorIds.add(child.id);
       }
     }
-    console.log('🔍 Auto-detected clipmask IDs:', Array.from(allClipVectorIds).length);
   }
 
-  // 获取所有 Vector 的详细信息
+  // ========== 新方案：一次导出整个 Frame ==========
+  const frameBounds = sourceFrame.absoluteBoundingBox;
+  if (!frameBounds) {
+    figma.ui.postMessage({ type: 'savedVectors', vectors: [], frameId: null });
+    return;
+  }
+
+  // 收集需要临时处理的图层
+  // 只处理工艺标注图层 - 隐藏它们的 fills 和 strokes
+  // 注意：clipmask vectors 不需要隐藏，它们只是裁剪边界，不影响导出内容
+  const layersFillsToHide: Array<{
+    node: SceneNode;
+    originalFills: readonly Paint[] | typeof figma.mixed;
+    originalStrokes: readonly Paint[];
+  }> = [];
+
+  function collectLayersToProcess(node: SceneNode) {
+    if (!node.visible) return;
+
+    // 跳过 clipmask vector - 它们不需要处理
+    if (allClipVectorIds.has(node.id)) {
+      return;
+    }
+
+    // 工艺标注图层 - 只隐藏 fills 和 strokes
+    if (hasCraftMarking(node)) {
+      if ('fills' in node && 'strokes' in node) {
+        layersFillsToHide.push({
+          node,
+          originalFills: node.fills,
+          originalStrokes: node.strokes,
+        });
+      }
+      // 不 return，继续递归处理子节点
+    }
+
+    // 递归处理子节点
+    if ('children' in node) {
+      for (const child of node.children) {
+        collectLayersToProcess(child);
+      }
+    }
+  }
+
+  // 收集需要处理的图层
+  if ('children' in sourceFrame) {
+    for (const child of sourceFrame.children) {
+      collectLayersToProcess(child);
+    }
+  }
+
+  console.log(`🎨 临时清空 ${layersFillsToHide.length} 个工艺图层的 fills/strokes`);
+
+  // 临时清空工艺标注图层的 fills 和 strokes
+  for (const item of layersFillsToHide) {
+    const node = item.node as GeometryMixin & SceneNode;
+    node.fills = [];
+    node.strokes = [];
+  }
+
+  // 导出整个 Frame 为 PNG（只导出一次）
+  console.log('📸 Exporting entire frame as PNG...');
+  let frameImageBase64: string | undefined;
+  try {
+    const frameBytes = await sourceFrame.exportAsync({
+      format: 'PNG',
+      constraint: { type: 'SCALE', value: 1 },
+    });
+    frameImageBase64 = `data:image/png;base64,${figma.base64Encode(frameBytes)}`;
+    console.log('✅ Frame exported successfully');
+  } catch (e) {
+    console.warn('❌ Failed to export frame:', e);
+  }
+
+  // 恢复工艺图层的 fills 和 strokes
+  for (const item of layersFillsToHide) {
+    const node = item.node as GeometryMixin & SceneNode;
+    if (item.originalFills !== figma.mixed) {
+      node.fills = item.originalFills as Paint[];
+    }
+    node.strokes = item.originalStrokes as Paint[];
+  }
+
+  console.log(`👁️ 已恢复 ${layersFillsToHide.length} 个工艺图层样式`);
+
+  // 收集每个 clipmask vector 的边界信息（相对于 Frame）
   const vectors: Array<{
     id: string;
     name: string;
@@ -411,124 +485,52 @@ export async function sendSavedVectors(): Promise<void> {
     y: number;
     width: number;
     height: number;
-    svgPreview?: string;
-    pngPreview?: string;
-    // 工艺贴图（用于 PBR 材质驱动）
-    craftTextures?: {
-      uv?: string;        // UV 贴图 → 驱动光泽度/粗糙度
-      normal?: string;    // 法线贴图 → 驱动凹凸
-      hotfoil?: string;   // 烫金贴图 → 驱动金属材质
-      silver?: string;    // 烫银贴图 → 驱动银材质
-      emboss?: string;    // 凹凸贴图 → 驱动置换
-    };
+    // 相对于 Frame 的裁剪区域（用于 UI 端裁剪）
+    cropX: number;
+    cropY: number;
+    cropWidth: number;
+    cropHeight: number;
   }> = [];
 
-  // 如果有保存的 IDs，使用它们
-  if (savedIds.length > 0) {
-    for (const id of savedIds) {
-      const node = figma.getNodeById(id);
-      if (!node || !('absoluteBoundingBox' in node)) continue;
+  for (const vectorId of allClipVectorIds) {
+    const node = figma.getNodeById(vectorId);
+    if (!node || !('absoluteBoundingBox' in node)) continue;
 
-      const bounds = (node as SceneNode).absoluteBoundingBox;
-      if (!bounds) continue;
+    const vectorNode = node as VectorNode;
+    const bounds = vectorNode.absoluteBoundingBox;
+    if (!bounds) continue;
 
-      // 使用 clipmask 盖印导出基础 PNG
-      const pngPreview = await exportClipmaskRasterize(
-        node as SceneNode,
-        sourceFrame,
-        allClipVectorIds
-      );
+    // 计算相对于 Frame 的裁剪区域
+    const cropX = bounds.x - frameBounds.x;
+    const cropY = bounds.y - frameBounds.y;
 
-      // 导出工艺贴图
-      const craftTextures: typeof vectors[0]['craftTextures'] = {};
+    vectors.push({
+      id: vectorNode.id,
+      name: vectorNode.name,
+      x: bounds.x,
+      y: bounds.y,
+      width: bounds.width,
+      height: bounds.height,
+      cropX,
+      cropY,
+      cropWidth: bounds.width,
+      cropHeight: bounds.height,
+    });
 
-      // UV 贴图
-      const uvTexture = await exportCraftTexture(node as SceneNode, sourceFrame, 'UV');
-      if (uvTexture) craftTextures.uv = uvTexture;
-
-      // 法线贴图
-      const normalTexture = await exportCraftTexture(node as SceneNode, sourceFrame, '法线');
-      if (normalTexture) craftTextures.normal = normalTexture;
-
-      // 烫金贴图
-      const hotfoilTexture = await exportCraftTexture(node as SceneNode, sourceFrame, '烫金');
-      if (hotfoilTexture) craftTextures.hotfoil = hotfoilTexture;
-
-      // 烫银贴图
-      const silverTexture = await exportCraftTexture(node as SceneNode, sourceFrame, '烫银');
-      if (silverTexture) craftTextures.silver = silverTexture;
-
-      // 凹凸贴图
-      const embossTexture = await exportCraftTexture(node as SceneNode, sourceFrame, '凹凸');
-      if (embossTexture) craftTextures.emboss = embossTexture;
-
-      vectors.push({
-        id: node.id,
-        name: node.name,
-        x: bounds.x,
-        y: bounds.y,
-        width: bounds.width,
-        height: bounds.height,
-        pngPreview,
-        craftTextures: Object.keys(craftTextures).length > 0 ? craftTextures : undefined,
-      });
-    }
-  } else {
-    // 没有保存的 IDs，自动检测
-    if ('children' in sourceFrame) {
-      for (const child of sourceFrame.children) {
-        const isPanelName = PANEL_NAME_PATTERN.test(child.name.trim());
-        const isVectorType = child.type === 'VECTOR';
-
-        if (isVectorType && isPanelName && 'absoluteBoundingBox' in child) {
-          const bounds = child.absoluteBoundingBox;
-          if (!bounds) continue;
-
-          // 使用 clipmask 盖印导出基础 PNG
-          const pngPreview = await exportClipmaskRasterize(
-            child,
-            sourceFrame,
-            allClipVectorIds
-          );
-
-          // 导出工艺贴图
-          const craftTextures: typeof vectors[0]['craftTextures'] = {};
-
-          const uvTex = await exportCraftTexture(child, sourceFrame, 'UV');
-          if (uvTex) craftTextures.uv = uvTex;
-
-          const normalTex = await exportCraftTexture(child, sourceFrame, '法线');
-          if (normalTex) craftTextures.normal = normalTex;
-
-          const hotfoilTex = await exportCraftTexture(child, sourceFrame, '烫金');
-          if (hotfoilTex) craftTextures.hotfoil = hotfoilTex;
-
-          const silverTex = await exportCraftTexture(child, sourceFrame, '烫银');
-          if (silverTex) craftTextures.silver = silverTex;
-
-          const embossTex = await exportCraftTexture(child, sourceFrame, '凹凸');
-          if (embossTex) craftTextures.emboss = embossTex;
-
-          vectors.push({
-            id: child.id,
-            name: child.name,
-            x: bounds.x,
-            y: bounds.y,
-            width: bounds.width,
-            height: bounds.height,
-            pngPreview,
-            craftTextures: Object.keys(craftTextures).length > 0 ? craftTextures : undefined,
-          });
-        }
-      }
-    }
+    console.log(`📐 Vector ${vectorNode.name}: crop(${cropX}, ${cropY}, ${bounds.width}, ${bounds.height})`);
   }
 
-  // 发送 savedVectors 消息给 UI（用于刀版图预览）
+  console.log(`📦 Total vectors: ${vectors.length}, Frame size: ${frameBounds.width}x${frameBounds.height}`);
+
+  // 发送 savedVectors 消息给 UI
   figma.ui.postMessage({
     type: 'savedVectors',
     vectors,
     frameId: sourceFrame.id,
+    // 新增：整个 Frame 的图片和尺寸
+    frameImage: frameImageBase64,
+    frameWidth: frameBounds.width,
+    frameHeight: frameBounds.height,
   });
 }
 
