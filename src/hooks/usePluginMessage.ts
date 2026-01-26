@@ -305,14 +305,86 @@ export function usePluginMessage(options: UsePluginMessageOptions = {}) {
 
         case 'savedVectors': {
           // savedVectors = clipmask 刀版图数据，用于视口预览折叠关系
-          const { vectors, frameId } = message as any;
+          const { vectors, frameId, frameImage, frameWidth, frameHeight } = message as any;
 
           // 设置 sourceFrameId
           if (frameId) {
             setSourceFrameId(frameId);
           }
           if (vectors && Array.isArray(vectors)) {
-            const layers = vectors.map((v: any) => ({
+            // 异步裁剪贴图并生成形状遮罩
+            const cropTexturesFromFrame = async () => {
+              // 如果有 frameImage，从中裁剪每个面片的贴图
+              const croppedTextures: Record<string, string> = {};
+              // 新增：面板外轮廓遮罩（用于外表面透明裁剪）
+              const shapeMasks: Record<string, string> = {};
+
+              if (frameImage && frameWidth && frameHeight) {
+                console.log(`🖼️ 开始裁剪贴图: ${vectors.length} 个面片, Frame: ${frameWidth}x${frameHeight}`);
+
+                try {
+                  // 加载 Frame 图片
+                  const img = new Image();
+                  await new Promise<void>((resolve, reject) => {
+                    img.onload = () => resolve();
+                    img.onerror = reject;
+                    img.src = frameImage;
+                  });
+
+                  // 为每个 vector 裁剪贴图
+                  for (const v of vectors) {
+                    const cropX = v.cropX ?? 0;
+                    const cropY = v.cropY ?? 0;
+                    const cropW = v.cropWidth ?? v.width ?? 100;
+                    const cropH = v.cropHeight ?? v.height ?? 100;
+
+                    if (cropW <= 0 || cropH <= 0) continue;
+
+                    // 创建 canvas 裁剪贴图
+                    const canvas = document.createElement('canvas');
+                    canvas.width = cropW;
+                    canvas.height = cropH;
+                    const ctx = canvas.getContext('2d');
+                    if (!ctx) continue;
+
+                    // 裁剪指定区域
+                    ctx.drawImage(img, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
+
+                    // 转为 base64 贴图
+                    const dataUrl = canvas.toDataURL('image/png');
+                    croppedTextures[v.id] = dataUrl;
+
+                    // 生成形状遮罩：将所有非透明像素变为白色
+                    const imageData = ctx.getImageData(0, 0, cropW, cropH);
+                    const data = imageData.data;
+                    for (let i = 0; i < data.length; i += 4) {
+                      const alpha = data[i + 3];
+                      if (alpha > 0) {
+                        // 非透明像素 -> 白色不透明
+                        data[i] = 255;     // R
+                        data[i + 1] = 255; // G
+                        data[i + 2] = 255; // B
+                        data[i + 3] = 255; // A = 完全不透明
+                      }
+                      // 透明像素保持透明（alpha = 0）
+                    }
+                    ctx.putImageData(imageData, 0, 0);
+                    const shapeMaskUrl = canvas.toDataURL('image/png');
+                    shapeMasks[v.id] = shapeMaskUrl;
+
+                    console.log(`✂️ 裁剪 ${v.name}: (${cropX}, ${cropY}, ${cropW}, ${cropH}) + shapeMask`);
+                  }
+                  console.log(`✅ 贴图裁剪完成: ${Object.keys(croppedTextures).length} 个, shapeMask: ${Object.keys(shapeMasks).length} 个`);
+                } catch (e) {
+                  console.warn('❌ 裁剪贴图失败:', e);
+                }
+              }
+
+              return { croppedTextures, shapeMasks };
+            };
+
+            // 先创建基础 layers（不含贴图）
+            const baseLayers = vectors.map((v: any) => ({
               id: v.id,
               name: v.name || 'Unnamed',
               type: 'VECTOR' as const,
@@ -333,15 +405,29 @@ export function usePluginMessage(options: UsePluginMessageOptions = {}) {
               pngPreview: v.pngPreview,
               craftType: 'CLIPMASK' as const,
             }));
-            // 设置 clipmask vectors（刀版图）
-            setClipMaskVectors(layers);
-            // 只在 foldSequence 为空时才初始化（保留用户手动排序）
-            // 使用过滤后的图层，排除被其他图层包含的嵌套图层
+
+            // 先设置基础数据，让 UI 可以立即显示
+            setClipMaskVectors(baseLayers);
+
+            // 异步裁剪贴图并更新
+            cropTexturesFromFrame().then(({ croppedTextures, shapeMasks }) => {
+              if (Object.keys(croppedTextures).length > 0) {
+                // 更新 layers 添加裁剪后的贴图和形状遮罩
+                const layersWithTextures = baseLayers.map((layer: any) => ({
+                  ...layer,
+                  pngPreview: croppedTextures[layer.id] || layer.pngPreview,
+                  shapeMask: shapeMasks[layer.id],  // 面板外轮廓遮罩
+                }));
+                setClipMaskVectors(layersWithTextures);
+                console.log('🎨 贴图和 shapeMask 已更新到 clipMaskVectors');
+              }
+            });
+
+            // 只在 foldSequence 为空时才初始化
             const currentFoldSequence = useAppStore.getState().foldSequence;
             if (currentFoldSequence.length === 0) {
-              const filteredLayers = filterNestedLayers(layers);
-              // 转换为 Vector 格式用于自动排序算法
-              const vectors: Vector[] = filteredLayers.map((l: any) => ({
+              const filteredLayers = filterNestedLayers(baseLayers);
+              const vectorsForSort: Vector[] = filteredLayers.map((l: any) => ({
                 id: l.id,
                 name: l.name || 'Unnamed',
                 x: l.x ?? l.bounds?.x ?? 0,
@@ -349,9 +435,7 @@ export function usePluginMessage(options: UsePluginMessageOptions = {}) {
                 width: l.width ?? l.bounds?.width ?? 100,
                 height: l.height ?? l.bounds?.height ?? 50,
               }));
-              // 使用自动排序算法计算折叠顺序
-              const result = autoInferFoldSequence(vectors);
-              // 设置折叠顺序、根节点、命名映射和带动关系
+              const result = autoInferFoldSequence(vectorsForSort);
               initFoldSequence(result.sequence);
               if (result.rootPanelId) {
                 setRootPanelId(result.rootPanelId);

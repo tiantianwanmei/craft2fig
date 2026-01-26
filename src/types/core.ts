@@ -81,6 +81,7 @@ export interface MarkedLayer {
   readonly craftParams?: CraftParams;
   readonly svgPreview?: string;  // SVG 预览字符串
   readonly pngPreview?: string;  // PNG 预览 base64
+  readonly shapeMask?: string;  // 面板外轮廓遮罩 base64（用于外表面透明裁剪）
 }
 
 // ========== 折边类型 ==========
