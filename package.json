@@ -1,0 +1,53 @@
+{
+  "name": "figma-plugin-modern",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build && npm run build:plugin",
+    "build:plugin": "node build-plugin.cjs",
+    "lint": "eslint .",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit && tsc -p tsconfig.plugin.json --noEmit"
+  },
+  "dependencies": {
+    "@figma/plugin-typings": "^1.121.0",
+    "@genki/craft-renderer": "workspace:*",
+    "@genki/folding-3d": "workspace:*",
+    "@genki/folding-engine": "workspace:*",
+    "@genki/hdr-system": "workspace:*",
+    "@genki/pbr-system": "workspace:*",
+    "@genki/shared-stores": "workspace:*",
+    "@genki/shared-theme": "workspace:*",
+    "@genki/shared-ui": "workspace:*",
+    "@react-three/drei": "^10.7.7",
+    "@react-three/fiber": "^9.5.0",
+    "clsx": "^2.1.0",
+    "framer-motion": "^12.23.26",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "three": "^0.182.0",
+    "zustand": "^5.0.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.1",
+    "@tailwindcss/postcss": "^4.1.18",
+    "@types/node": "^24.10.1",
+    "@types/react": "^19.2.5",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^5.1.1",
+    "autoprefixer": "^10.4.23",
+    "esbuild": "^0.27.2",
+    "eslint": "^9.39.1",
+    "eslint-plugin-react-hooks": "^7.0.1",
+    "eslint-plugin-react-refresh": "^0.4.24",
+    "globals": "^16.5.0",
+    "postcss": "^8.5.6",
+    "tailwindcss": "^4.1.18",
+    "typescript": "~5.9.3",
+    "typescript-eslint": "^8.46.4",
+    "vite": "^7.2.4",
+    "vite-plugin-singlefile": "^2.3.0"
+  }
+}

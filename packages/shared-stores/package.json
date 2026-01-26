@@ -1,0 +1,17 @@
+{
+  "name": "@genki/shared-stores",
+  "version": "1.0.0",
+  "description": "Shared Zustand stores for Genki packages",
+  "main": "./src/index.ts",
+  "module": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": {
+      "import": "./src/index.ts",
+      "types": "./src/index.ts"
+    }
+  },
+  "peerDependencies": {
+    "zustand": "^4.4.0"
+  }
+}

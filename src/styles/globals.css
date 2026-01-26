@@ -1,0 +1,816 @@
+/**
+ * 🌐 Global Styles - Genki Packaging Exporter
+ * 三层 Token 体系整合入口
+ *
+ * Layer 1: Primitive (原子层) - 纯数值定义
+ * Layer 2: Semantic (语义层) - 意图表达
+ * Layer 3: Compat (兼容层) - 旧变量兼容
+ */
+
+/* ========== Token 系统导入 ========== */
+@import './tokens-primitive.css';
+@import './tokens-semantic.css';
+@import './tokens-compat.css';
+@import './tokens-dark-theme.css';
+@import './tokens-modern.css';
+@import './design-reset.css';
+
+/* ========== Tailwind 基础 ========== */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ========== 全局基础样式 ========== */
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html, body, #root {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+body {
+  background: var(--bg-canvas);
+  color: var(--text-primary);
+  font-family: var(--p-font-sans);
+  font-size: var(--font-base);
+  line-height: var(--p-leading-normal);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* ========== Figma 插件专用样式 ========== */
+.figma-plugin-root {
+  background: var(--semantic-bg-canvas-default);
+  color: var(--semantic-fg-text-primary);
+  min-height: 100vh;
+}
+
+/* ========== 玻璃态效果 (Glassmorphism) ========== */
+.glass-panel {
+  background: rgba(255, 255, 255, 0.03);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid var(--border-divider-weak);
+}
+
+.glass-panel-elevated {
+  background: rgba(38, 38, 38, 0.85);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid var(--border-divider-default);
+  box-shadow: var(--shadow-panel);
+}
+
+/* ========== 滑块样式 ========== */
+input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 4px;
+  background: transparent;
+  cursor: pointer;
+}
+
+input[type="range"]::-webkit-slider-runnable-track {
+  width: 100%;
+  height: 2px;
+  background: var(--overlay-white-10);
+  border-radius: var(--radius-xs);
+}
+
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--semantic-bg-action-primary-default);
+  border: 2px solid var(--color-white);
+  margin-top: -5px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+input[type="range"]:hover::-webkit-slider-thumb {
+  background: var(--semantic-bg-action-primary-hover);
+  transform: scale(1.1);
+}
+
+input[type="range"]:active::-webkit-slider-thumb {
+  background: var(--semantic-bg-action-primary-active);
+  transform: scale(0.95);
+}
+
+/* ========== 滚动条样式 ========== */
+::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--overlay-white-10);
+  border-radius: var(--radius-xs);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--overlay-white-20);
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--overlay-white-10) transparent;
+}
+
+/* ========== 按钮基础样式 ========== */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-xs);
+  padding: var(--space-xs) var(--space-sm);
+  font-size: var(--font-sm);
+  font-weight: 500;
+  border-radius: var(--radius-sm);
+  border: none;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  user-select: none;
+}
+
+.btn-primary {
+  background: var(--semantic-bg-action-primary-default);
+  color: var(--color-white);
+}
+
+.btn-primary:hover {
+  background: var(--semantic-bg-action-primary-hover);
+}
+
+.btn-primary:active {
+  background: var(--semantic-bg-action-primary-active);
+}
+
+.btn-secondary {
+  background: var(--bg-interactive-default);
+  color: var(--fg-text-primary);
+  border: none;
+}
+
+.btn-secondary:hover {
+  background: var(--overlay-white-10);
+}
+
+.btn-ghost {
+  background: transparent;
+  color: var(--fg-text-secondary);
+}
+
+.btn-ghost:hover {
+  background: var(--overlay-white-5);
+  color: var(--fg-text-primary);
+}
+
+/* ========== 输入框基础样式 ========== */
+.input {
+  width: 100%;
+  padding: var(--space-xs) var(--space-sm);
+  font-size: var(--font-sm);
+  color: var(--fg-text-primary);
+  background: var(--bg-interactive-default);
+  border: none;
+  border-radius: var(--radius-sm);
+  outline: none;
+  transition: all 0.15s ease;
+}
+
+.input:hover {
+  background: var(--bg-interactive-hover);
+}
+
+.input:focus {
+  background: var(--bg-interactive-hover);
+}
+
+.input::placeholder {
+  color: var(--fg-text-muted);
+}
+
+/* ========== 面板样式 ========== */
+.panel {
+  background: var(--semantic-bg-surface-primary);
+  border: none;
+  border-radius: var(--radius-md);
+}
+
+.panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-sm) var(--space-md);
+  border-bottom: 1px solid var(--border-divider-weak);
+}
+
+.panel-content {
+  padding: var(--space-md);
+}
+
+/* ========== 标签页样式 ========== */
+/* 已迁移到 @genki/shared-ui 的 RootTabs 和 NestedTabs 组件 */
+
+/* ========== 开关样式 ========== */
+.toggle {
+  position: relative;
+  width: 36px;
+  height: 20px;
+  background: var(--overlay-white-10);
+  border-radius: var(--radius-full);
+  cursor: pointer;
+  transition: background 0.2s ease;
+}
+
+.toggle.active {
+  background: var(--semantic-bg-action-primary-default);
+}
+
+.toggle::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  background: var(--color-white);
+  border-radius: 50%;
+  transition: transform 0.2s ease;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+}
+
+.toggle.active::after {
+  transform: translateX(16px);
+}
+
+/* ========== 工具提示 ========== */
+.tooltip {
+  position: absolute;
+  padding: var(--space-xs) var(--space-sm);
+  font-size: var(--font-xs);
+  color: var(--fg-text-primary);
+  background: var(--semantic-bg-surface-secondary);
+  border: 1px solid var(--border-divider-default);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-panel);
+  white-space: nowrap;
+  z-index: 1000;
+  pointer-events: none;
+}
+
+/* ========== 动画 ========== */
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes slideUp {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+.animate-fadeIn {
+  animation: fadeIn 0.2s ease;
+}
+
+.animate-slideUp {
+  animation: slideUp 0.2s ease;
+}
+
+.animate-pulse {
+  animation: pulse 2s infinite;
+}
+
+/* ========== 状态颜色 ========== */
+.text-success { color: var(--semantic-status-success); }
+.text-warning { color: var(--semantic-status-warning); }
+.text-error { color: var(--semantic-status-error); }
+.text-info { color: var(--semantic-text-info); }
+
+.bg-success-subtle { background: var(--semantic-bg-green-light); }
+.bg-warning-subtle { background: var(--semantic-status-warning-bg); }
+.bg-error-subtle { background: var(--semantic-status-error-bg); }
+.bg-info-subtle { background: var(--semantic-bg-blue-subtle); }
+
+/* ========== 原版兼容样式 ========== */
+
+/* Section 样式 */
+.section {
+  margin-bottom: var(--section-margin-bottom);
+}
+
+.section-title {
+  font-size: var(--p-text-10);
+  font-weight: var(--p-font-semibold);
+  color: var(--fg-text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: var(--p-tracking-wide);
+  margin-bottom: var(--section-title-margin-bottom);
+}
+
+/* Toggle Row 样式 */
+.toggle-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--toggle-padding-y) var(--toggle-padding-x);
+  background: var(--bg-interactive-default);
+  border: none;
+  border-radius: var(--p-radius-md);
+  cursor: pointer;
+  transition: all var(--p-duration-fast) ease;
+  margin-bottom: var(--toggle-margin-bottom);
+}
+
+.toggle-row:hover {
+  background: var(--bg-interactive-hover);
+}
+
+.toggle-row.active {
+  background: var(--bg-interactive-selected);
+}
+
+.toggle-label {
+  font-size: var(--p-text-xs);
+  font-weight: var(--p-font-medium);
+  color: var(--fg-text-primary);
+}
+
+.toggle-hint {
+  font-size: var(--p-text-9);
+  color: var(--fg-text-tertiary);
+  margin-top: var(--p-space-0-5);
+}
+
+.toggle-switch {
+  width: var(--p-space-8);
+  height: 18px;
+  background: var(--bg-interactive-default);
+  border-radius: var(--p-radius-full);
+  position: relative;
+  transition: background var(--p-duration-base) ease;
+}
+
+.toggle-switch::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 14px;
+  height: 14px;
+  background: white;
+  border-radius: 50%;
+  transition: transform 0.2s ease;
+}
+
+.toggle-switch.active {
+  background: #06b6d4;
+}
+
+.toggle-switch.active::after {
+  transform: translateX(14px);
+}
+
+/* 按钮样式 */
+.export-btn {
+  width: 100%;
+  padding: var(--p-space-2) var(--p-space-4);
+  background: linear-gradient(135deg, var(--p-cyan-500), var(--p-cyan-600));
+  border: none;
+  border-radius: var(--p-radius-md);
+  color: var(--p-white);
+  font-size: var(--p-text-xs);
+  font-weight: var(--p-font-semibold);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all var(--p-duration-fast) ease;
+}
+
+.export-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(6, 182, 212, 0.3);
+}
+
+.export-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.secondary-btn {
+  /* 已迁移到 @genki/shared-ui 的 Button 组件 */
+  /* 保留此类名以防其他地方引用，但样式已废弃 */
+  padding: var(--p-space-2) var(--p-space-3);
+  background: var(--bg-interactive-default);
+  border: none;
+  border-radius: var(--p-radius-sm);
+  color: var(--fg-text-secondary);
+  font-size: var(--p-text-10);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all var(--p-duration-fast) ease;
+}
+
+.secondary-btn:hover {
+  background: var(--bg-interactive-hover);
+}
+
+.secondary-btn.danger {
+  color: #ef4444;
+}
+
+.secondary-btn.danger:hover {
+  background: rgba(239, 68, 68, 0.1);
+}
+
+/* 工艺按钮网格 */
+.craft-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--p-space-2);
+}
+
+.craft-btn {
+  padding: var(--p-space-2) var(--p-space-1);
+  background: var(--bg-interactive-default);
+  border: none;
+  border-radius: var(--p-radius-sm);
+  color: var(--fg-text-secondary);
+  font-size: var(--p-text-9);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all var(--p-duration-fast) ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--p-space-1);
+}
+
+.craft-btn:hover {
+  background: var(--bg-interactive-hover);
+}
+
+.craft-dot {
+  width: var(--p-space-1-5);
+  height: var(--p-space-1-5);
+  border-radius: 50%;
+}
+
+.craft-btn.gold .craft-dot { background: #d4a853; }
+.craft-btn.silver .craft-dot { background: #c0c0c0; }
+.craft-btn.uv .craft-dot { background: #18A0FB; }
+.craft-btn.emboss .craft-dot { background: #a78bfa; }
+.craft-btn.normal .craft-dot { background: #4ade80; }
+.craft-btn.displacement .craft-dot { background: #fa8c4a; }
+
+/* 滑块样式 */
+.slider-row {
+  margin-bottom: 12px;
+}
+
+.slider-header {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 4px;
+}
+
+.slider-label {
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.slider-value {
+  font-size: 10px;
+  color: #06b6d4;
+  font-family: var(--p-font-mono);
+}
+
+.slider-track {
+  width: 100%;
+  height: 4px;
+  -webkit-appearance: none;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 2px;
+  cursor: pointer;
+}
+
+.param-slider {
+  width: 100%;
+  height: 4px;
+  -webkit-appearance: none;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 2px;
+  cursor: pointer;
+}
+
+/* 参数面板样式 */
+.param-row {
+  margin-bottom: 12px;
+}
+
+.param-header {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 4px;
+}
+
+.param-label {
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.param-value {
+  font-size: 10px;
+  color: #06b6d4;
+  font-family: var(--p-font-mono);
+}
+
+/* 批量标记选项 */
+.batch-option-row {
+  margin-bottom: 6px;
+}
+
+.batch-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.7);
+  cursor: pointer;
+}
+
+.batch-checkbox input {
+  width: 14px;
+  height: 14px;
+}
+
+/* 已标记列表样式 */
+.marked-list {
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.craft-group {
+  margin-bottom: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.craft-group-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 10px;
+  background: rgba(255, 255, 255, 0.03);
+  cursor: pointer;
+}
+
+.craft-group-header-left {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.craft-group-arrow {
+  font-size: 8px;
+  color: rgba(255, 255, 255, 0.4);
+  transition: transform 0.15s;
+}
+
+.craft-group.collapsed .craft-group-arrow {
+  transform: rotate(-90deg);
+}
+
+.craft-group-title {
+  font-size: 10px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.8);
+}
+
+.craft-group-count {
+  font-size: 9px;
+  color: rgba(255, 255, 255, 0.4);
+  background: rgba(255, 255, 255, 0.1);
+  padding: 1px 6px;
+  border-radius: 10px;
+}
+
+.craft-group-items {
+  padding: 4px 8px 8px;
+}
+
+.marked-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 8px;
+  background: rgba(255, 255, 255, 0.02);
+  border-radius: 4px;
+  margin-bottom: 2px;
+  cursor: pointer;
+}
+
+.marked-item:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.marked-item-name {
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.7);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.delete-btn {
+  width: 16px;
+  height: 16px;
+  background: transparent;
+  border: none;
+  color: rgba(255, 255, 255, 0.3);
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.delete-btn:hover {
+  color: #ef4444;
+}
+
+/* 面板标签页样式 - 已迁移到 @genki/shared-ui */
+
+/* ========== Spacing Utilities ========== */
+/* Padding */
+.p-xs { padding: var(--p-space-1); }
+.p-sm { padding: var(--p-space-2); }
+.p-md { padding: var(--p-space-3); }
+.p-lg { padding: var(--p-space-4); }
+.p-xl { padding: var(--p-space-6); }
+
+/* Margin */
+.m-xs { margin: var(--p-space-1); }
+.m-sm { margin: var(--p-space-2); }
+.m-md { margin: var(--p-space-3); }
+.m-lg { margin: var(--p-space-4); }
+.m-xl { margin: var(--p-space-6); }
+
+/* Gap */
+.gap-xs { gap: var(--p-space-1); }
+.gap-sm { gap: var(--p-space-2); }
+.gap-md { gap: var(--p-space-3); }
+.gap-lg { gap: var(--p-space-4); }
+.gap-xl { gap: var(--p-space-6); }
+
+/* Padding X (horizontal) */
+.px-xs { padding-left: var(--p-space-1); padding-right: var(--p-space-1); }
+.px-sm { padding-left: var(--p-space-2); padding-right: var(--p-space-2); }
+.px-md { padding-left: var(--p-space-3); padding-right: var(--p-space-3); }
+.px-lg { padding-left: var(--p-space-4); padding-right: var(--p-space-4); }
+
+/* Padding Y (vertical) */
+.py-xs { padding-top: var(--p-space-1); padding-bottom: var(--p-space-1); }
+.py-sm { padding-top: var(--p-space-2); padding-bottom: var(--p-space-2); }
+.py-md { padding-top: var(--p-space-3); padding-bottom: var(--p-space-3); }
+.py-lg { padding-top: var(--p-space-4); padding-bottom: var(--p-space-4); }
+
+/* Margin X (horizontal) */
+.mx-xs { margin-left: var(--p-space-1); margin-right: var(--p-space-1); }
+.mx-sm { margin-left: var(--p-space-2); margin-right: var(--p-space-2); }
+.mx-md { margin-left: var(--p-space-3); margin-right: var(--p-space-3); }
+.mx-lg { margin-left: var(--p-space-4); margin-right: var(--p-space-4); }
+
+/* Margin Y (vertical) */
+.my-xs { margin-top: var(--p-space-1); margin-bottom: var(--p-space-1); }
+.my-sm { margin-top: var(--p-space-2); margin-bottom: var(--p-space-2); }
+.my-md { margin-top: var(--p-space-3); margin-bottom: var(--p-space-3); }
+.my-lg { margin-top: var(--p-space-4); margin-bottom: var(--p-space-4); }
+
+/* ========== 统一组件宽度系统 ========== */
+.section {
+  width: 100%;
+  max-width: 100%;
+  margin-bottom: var(--section-margin-bottom);
+}
+
+.section > * {
+  width: 100%;
+}
+
+/* Section 内部组件自适应 */
+.section .toggle-row,
+.section .export-btn,
+.section .secondary-btn,
+.section .craft-grid,
+.section .slider-row,
+.section .param-row,
+.section .batch-option-row {
+  width: 100%;
+}
+
+/* ========== Slider Component Styles ========== */
+/* 极简滑块样式 - 使用 Design Tokens */
+
+.slider-input::-webkit-slider-thumb {
+  appearance: none;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--semantic-bg-action-primary-default);
+  border: 2px solid var(--bg-canvas);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+  cursor: pointer;
+  transition: transform var(--p-duration-fast) ease;
+}
+
+.slider-input::-webkit-slider-thumb:hover {
+  transform: scale(1.1);
+}
+
+.slider-input::-webkit-slider-thumb:active {
+  transform: scale(0.95);
+}
+
+.slider-input::-moz-range-thumb {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--semantic-bg-action-primary-default);
+  border: 2px solid var(--bg-canvas);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+  cursor: pointer;
+  transition: transform var(--p-duration-fast) ease;
+}
+
+.slider-input::-moz-range-thumb:hover {
+  transform: scale(1.1);
+}
+
+.slider-input::-moz-range-thumb:active {
+  transform: scale(0.95);
+}
+
+/* 禁用状态 */
+.slider-input:disabled::-webkit-slider-thumb {
+  background: var(--fg-text-tertiary);
+  cursor: not-allowed;
+}
+
+.slider-input:disabled::-moz-range-thumb {
+  background: var(--fg-text-tertiary);
+  cursor: not-allowed;
+}
+
+/* ========== 隐藏滚动条（防止布局抖动） ========== */
+/* 用于 CraftParamPanel 等需要隐藏滚动条的容器 */
+.hide-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+.hide-scrollbar {
+  -ms-overflow-style: none;  /* IE and Edge */
+  scrollbar-width: none;  /* Firefox */
+}
+
+/* ========== Panel 内部禁用所有滚动条 ========== */
+/* 避免出现多个竖直滚动条导致视觉混乱 */
+.panel-tab-content ::-webkit-scrollbar {
+  display: none;
+}
+
+.panel-tab-content * {
+  -ms-overflow-style: none;  /* IE and Edge */
+  scrollbar-width: none;  /* Firefox */
+}
+
+/* ========== VectorCard Ghost Badge 样式 ========== */
+/* 使用 CSS :hover 控制 ghost badge 显示，与原版一致 */
+[data-vector-card]:hover .vector-ghost-badge {
+  opacity: 1 !important;
+}

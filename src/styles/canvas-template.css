@@ -1,0 +1,104 @@
+/* ============================================
+   GENKI Design System - Canvas Template CSS
+   使用 @genki/shared-theme 的 Semantic Tokens
+   通过 ThemeProvider 注入的 Shadcn CSS 变量
+   Brand DNA: 科技极客风（青色系）
+   Layout: Left Viewport + Right Panel
+============================================ */
+
+:root {
+  /* ========== 字体系统 ========== */
+  --font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-mono: 'SF Mono', Monaco, 'Cascadia Code', monospace;
+
+  /* 字体大小 - 匹配原始 HTML 模板 */
+  --font-size-micro: var(--p-text-9);
+  --font-size-xs: var(--p-text-10);
+  --font-size-sm: var(--p-text-11);
+  --font-size-md: var(--p-text-12);
+  --font-size-lg: var(--p-text-13);
+  --font-size-xl: var(--p-text-14);
+  --font-size-2xl: var(--p-text-16);
+  --font-size-3xl: var(--p-text-18);
+
+  /* ========== 间距系统 ========== */
+  --space-xxs: var(--p-space-0.5);
+  --space-xs: var(--p-space-1);
+  --space-sm: var(--p-space-2);
+  --space-md: var(--p-space-3);
+  --space-lg: var(--p-space-4);
+  --space-xl: var(--p-space-5);
+  --space-2xl: var(--p-space-6);
+  --space-3xl: var(--p-space-8);
+
+  /* ========== 圆角系统 ========== */
+  --radius-sm: var(--p-radius-sm);
+  --radius-md: var(--p-radius-md);
+  --radius-lg: var(--p-radius-lg);
+  --radius-xl: var(--p-radius-xl);
+
+  /* ========== 布局尺寸 ========== */
+  --panel-width: 280px;
+  --header-height: 48px;
+  --footer-height: 56px;
+
+  /* ========== 阴影系统 ========== */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow-md: 0 4px 6px rgba(0, 0, 0, 0.3);
+  --shadow-lg: 0 10px 15px rgba(0, 0, 0, 0.3);
+
+  /* ========== 颜色系统 - 映射到 primitive tokens ========== */
+  /* Primary (Cyan) */
+  --color-primary-50: var(--p-cyan-50);
+  --color-primary-100: var(--p-cyan-100);
+  --color-primary-200: var(--p-cyan-200);
+  --color-primary-300: var(--p-cyan-300);
+  --color-primary-400: var(--p-cyan-400);
+  --color-primary-500: var(--p-cyan-500);
+  --color-primary-600: var(--p-cyan-600);
+  --color-primary-700: var(--p-cyan-700);
+  --color-primary-800: var(--p-cyan-800);
+  --color-primary-900: var(--p-cyan-900);
+
+  /* Neutral (Gray) */
+  --color-neutral-50: var(--p-gray-50);
+  --color-neutral-100: var(--p-gray-100);
+  --color-neutral-200: var(--p-gray-200);
+  --color-neutral-300: var(--p-gray-300);
+  --color-neutral-400: var(--p-gray-400);
+  --color-neutral-500: var(--p-gray-500);
+  --color-neutral-600: var(--p-gray-600);
+  --color-neutral-700: var(--p-gray-700);
+  --color-neutral-800: var(--p-gray-800);
+  --color-neutral-900: var(--p-gray-900);
+
+  /* ========== 工艺颜色（固定值）========== */
+  --craft-gold: #d4a853;
+  --craft-silver: #c0c0c0;
+  --craft-uv: #18A0FB;
+  --craft-emboss: #a78bfa;
+  --craft-normal: #4ade80;
+  --craft-displacement: #fa8c4a;
+
+  /* ========== 注意 ========== */
+  /* 所有 --p-* 变量已在 tokens-primitive.css 中定义 */
+  /* 不要在这里重复定义，避免覆盖 monorepo 的 tokens */
+}
+
+/* ========== Canvas 主题特定样式 ========== */
+.canvas {
+  /* 使用 ThemeProvider 注入的 Shadcn 变量 */
+  /* --background, --foreground, --primary 等由 ThemeProvider 动态注入 */
+}
+
+/* ========== 玻璃态效果（使用 Shadcn 变量）========== */
+:root {
+  --glass-surface: hsl(var(--muted) / 0.72);
+  --glass-surface-strong: hsl(var(--muted) / 0.86);
+  --glass-tint: hsl(var(--primary) / 0.16);
+  --glass-tint-strong: hsl(var(--primary) / 0.26);
+  --glass-border: hsl(var(--border) / 0.22);
+  --glass-border-strong: hsl(var(--border) / 0.32);
+  --glass-shadow: 0 10px 30px hsl(var(--background) / 0.65);
+  --glass-glow: 0 0 0 1px hsl(var(--primary) / 0.2), 0 0 18px hsl(var(--primary) / 0.14);
+}

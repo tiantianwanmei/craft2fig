@@ -1,0 +1,31 @@
+/**
+ * 🌙 Theme Tokens - 主题层
+ * 深色模式覆盖语义层变量
+ */
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    /* 文本颜色 - 深色模式 */
+    --text-primary: var(--p-gray-50);
+    --text-secondary: var(--p-gray-400);
+    --text-tertiary: var(--p-gray-500);
+    --text-muted: var(--p-gray-600);
+    --text-brand: var(--p-cyan-400);
+
+    /* 背景颜色 - 深色模式 */
+    --bg-canvas: var(--p-gray-950);
+    --bg-surface: var(--p-gray-900);
+    --bg-surface-alt: var(--p-gray-800);
+    --bg-elevated: var(--p-gray-800);
+
+    /* 交互颜色 - 深色模式 */
+    --bg-action: var(--p-cyan-400);
+    --bg-action-hover: var(--p-cyan-300);
+    --bg-action-active: var(--p-cyan-200);
+
+    /* 边框颜色 - 深色模式 */
+    --border-default: var(--p-gray-700);
+    --border-subtle: var(--p-gray-800);
+    --border-strong: var(--p-gray-600);
+  }
+}

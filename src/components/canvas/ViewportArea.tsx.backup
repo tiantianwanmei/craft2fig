@@ -1,0 +1,996 @@
+/**
+ * 🎮 ViewportArea - 视口区域组件
+ * 使用 monorepo token system 确保设计一致性
+ */
+
+import { memo, useState, useCallback, useMemo, useRef, useEffect } from 'react';
+import { useAppStore } from '../../store';
+import { useShallow } from 'zustand/react/shallow';
+import { usePluginMessage } from '../../hooks';
+import { CraftThumbnails } from '../craft/CraftThumbnails';
+import { CraftLargePreview } from '../craft/CraftLargePreview';
+import { detectFoldEdges } from '../../utils/foldLogic';
+import { SEMANTIC_TOKENS } from '@genki/shared-theme';
+
+// 计算所有矢量的边界框 (原版 ui.html 逻辑)
+function calculateBounds(vectors: any[]) {
+  if (!vectors || vectors.length === 0) {
+    return { minX: 0, minY: 0, maxX: 100, maxY: 100, width: 100, height: 100 };
+  }
+
+  let minX = Infinity, minY = Infinity;
+  let maxX = -Infinity, maxY = -Infinity;
+
+  vectors.forEach(v => {
+    const x = v.x ?? v.bounds?.x ?? 0;
+    const y = v.y ?? v.bounds?.y ?? 0;
+    const width = v.width ?? v.bounds?.width ?? 100;
+    const height = v.height ?? v.bounds?.height ?? 50;
+
+    minX = Math.min(minX, x);
+    minY = Math.min(minY, y);
+    maxX = Math.max(maxX, x + width);
+    maxY = Math.max(maxY, y + height);
+  });
+
+  return {
+    minX, minY, maxX, maxY,
+    width: Math.max(maxX - minX, 1),
+    height: Math.max(maxY - minY, 1)
+  };
+}
+
+ const styles = {
+   root: {
+     display: 'flex',
+     flexDirection: 'column' as const,
+     flex: 1,
+     minWidth: 0,
+     height: '100%',
+     overflow: 'hidden',
+     background: SEMANTIC_TOKENS.color.surface.canvas,
+   },
+   header: {
+     display: 'flex',
+     alignItems: 'center',
+     justifyContent: 'space-between',
+     padding: `${SEMANTIC_TOKENS.spacing.component.md} ${SEMANTIC_TOKENS.spacing.component.lg}`,
+     borderBottom: `${SEMANTIC_TOKENS.border.width.thin} solid ${SEMANTIC_TOKENS.color.border.default}`,
+     background: SEMANTIC_TOKENS.color.surface.overlay,
+     backdropFilter: 'blur(10px)',
+   },
+   logoSection: {
+     display: 'flex',
+     alignItems: 'center',
+     gap: '8px',
+     minWidth: 0,
+   },
+   logoIcon: {
+     width: '24px',
+     height: '24px',
+     borderRadius: SEMANTIC_TOKENS.border.radius.sm,
+     display: 'grid',
+     placeItems: 'center',
+     background: SEMANTIC_TOKENS.color.bg.interactive.default,
+     border: `${SEMANTIC_TOKENS.border.width.thin} solid ${SEMANTIC_TOKENS.color.border.default}`,
+     boxShadow: SEMANTIC_TOKENS.shadow.md,
+     flexShrink: 0,
+   },
+   logoText: {
+     display: 'flex',
+     flexDirection: 'column' as const,
+     gap: '2px',
+     minWidth: 0,
+   },
+   logoTitle: {
+     fontSize: SEMANTIC_TOKENS.typography.fontSize.xs,
+     lineHeight: 1.1,
+     fontWeight: SEMANTIC_TOKENS.typography.fontWeight.semibold,
+     letterSpacing: '0.2px',
+     color: SEMANTIC_TOKENS.color.text.primary,
+     whiteSpace: 'nowrap' as const,
+     overflow: 'hidden',
+     textOverflow: 'ellipsis',
+   },
+   logoSubtitle: {
+     fontSize: SEMANTIC_TOKENS.typography.fontSize.micro,
+     lineHeight: 1.2,
+     color: SEMANTIC_TOKENS.color.text.tertiary,
+     whiteSpace: 'nowrap' as const,
+     overflow: 'hidden',
+     textOverflow: 'ellipsis',
+   },
+   content: {
+     flex: 1,
+     minHeight: 0,
+     display: 'flex',
+     flexDirection: 'column' as const,
+     overflow: 'hidden',
+     position: 'relative' as const,
+   },
+   placeholder: {
+     flex: 1,
+     minHeight: 0,
+     display: 'grid',
+     placeItems: 'center',
+     padding: SEMANTIC_TOKENS.spacing.component.xl,
+     color: SEMANTIC_TOKENS.color.text.tertiary,
+   },
+   placeholderCard: {
+     width: 'min(520px, 92%)',
+     borderRadius: SEMANTIC_TOKENS.border.radius.lg,
+     border: `${SEMANTIC_TOKENS.border.width.thin} dashed ${SEMANTIC_TOKENS.color.border.weak}`,
+     background: SEMANTIC_TOKENS.color.bg.interactive.default,
+     boxShadow: SEMANTIC_TOKENS.shadow.lg,
+     padding: '22px 18px',
+     display: 'flex',
+     flexDirection: 'column' as const,
+     alignItems: 'center',
+     gap: SEMANTIC_TOKENS.spacing.component.md,
+     textAlign: 'center' as const,
+   },
+   placeholderIcon: {
+     fontSize: '28px',
+     lineHeight: 1,
+     filter: SEMANTIC_TOKENS.shadow.md,
+   },
+   placeholderText: {
+     fontSize: SEMANTIC_TOKENS.typography.fontSize.xs,
+     lineHeight: 1.5,
+     color: SEMANTIC_TOKENS.color.text.secondary,
+   },
+   vectorContainer: {
+     display: 'flex',
+     flexDirection: 'column' as const,
+     gap: '8px',
+     padding: '8px',
+     flex: 1,
+     minHeight: 0,
+     overflow: 'hidden',
+   },
+   vectorCard: {
+     flex: 1,
+     display: 'flex',
+     flexDirection: 'column' as const,
+     minHeight: 0,
+     borderRadius: SEMANTIC_TOKENS.border.radius.lg,
+     border: `${SEMANTIC_TOKENS.border.width.thin} solid ${SEMANTIC_TOKENS.color.border.default}`,
+     background: SEMANTIC_TOKENS.color.surface.overlay,
+     backdropFilter: 'blur(10px)',
+     boxShadow: SEMANTIC_TOKENS.shadow.lg,
+     overflow: 'hidden',
+   },
+   vectorHeader: {
+     display: 'flex',
+     alignItems: 'center',
+     gap: SEMANTIC_TOKENS.spacing.component.md,
+     padding: `${SEMANTIC_TOKENS.spacing.component.sm} ${SEMANTIC_TOKENS.spacing.component.lg}`,
+     borderBottom: `${SEMANTIC_TOKENS.border.width.thin} solid ${SEMANTIC_TOKENS.color.border.default}`,
+   },
+   vectorTitle: {
+     fontSize: SEMANTIC_TOKENS.typography.fontSize.xs,
+     fontWeight: SEMANTIC_TOKENS.typography.fontWeight.semibold,
+     color: SEMANTIC_TOKENS.color.text.primary,
+     letterSpacing: '0.2px',
+   },
+   vectorHint: {
+     marginLeft: 'auto',
+     fontSize: SEMANTIC_TOKENS.typography.fontSize.micro,
+     color: SEMANTIC_TOKENS.color.text.tertiary,
+     whiteSpace: 'nowrap' as const,
+   },
+   buttonGhost: {
+     appearance: 'none' as const,
+     background: SEMANTIC_TOKENS.color.bg.interactive.default,
+     border: `${SEMANTIC_TOKENS.border.width.thin} solid ${SEMANTIC_TOKENS.color.border.default}`,
+     color: SEMANTIC_TOKENS.color.text.primary,
+     borderRadius: SEMANTIC_TOKENS.border.radius.md,
+     padding: `${SEMANTIC_TOKENS.spacing.component.sm} ${SEMANTIC_TOKENS.spacing.component.md}`,
+     cursor: 'pointer',
+     fontSize: SEMANTIC_TOKENS.typography.fontSize.xs,
+     lineHeight: 1,
+     display: 'inline-flex',
+     alignItems: 'center',
+     gap: SEMANTIC_TOKENS.spacing.component.sm,
+     flexShrink: 0,
+   },
+   canvasArea: {
+     position: 'relative' as const,
+     flex: 1,
+     minHeight: 0,
+     overflow: 'hidden',
+     padding: SEMANTIC_TOKENS.spacing['3'],
+     background: `radial-gradient(1200px 600px at 40% 20%, ${SEMANTIC_TOKENS.color.bg.accent.indigo}, transparent 60%), radial-gradient(900px 520px at 80% 70%, ${SEMANTIC_TOKENS.color.bg.accent.emerald}, transparent 55%)`,
+   },
+   canvasSurface: {
+     position: 'relative' as const,
+     width: 'max(900px, 100%)',
+     height: 'max(560px, 100%)',
+     borderRadius: SEMANTIC_TOKENS.border.radius.lg,
+     border: 'none',
+     background: 'transparent',
+     overflow: 'hidden',
+   },
+   canvasControls: {
+     position: 'absolute' as const,
+     top: SEMANTIC_TOKENS.spacing['3'],
+     right: SEMANTIC_TOKENS.spacing['3'],
+     zIndex: 5,
+     display: 'flex',
+     alignItems: 'center',
+     gap: SEMANTIC_TOKENS.spacing['1.5'],
+     padding: SEMANTIC_TOKENS.spacing['1.5'],
+     borderRadius: SEMANTIC_TOKENS.border.radius.xl,
+     border: `${SEMANTIC_TOKENS.border.width.thin} solid ${SEMANTIC_TOKENS.color.border.overlay}`,
+     background: SEMANTIC_TOKENS.color.surface.overlay,
+     backdropFilter: 'blur(10px)',
+   },
+   canvasBtn: {
+     width: '28px',
+     height: '28px',
+     borderRadius: SEMANTIC_TOKENS.border.radius.lg,
+     border: `${SEMANTIC_TOKENS.border.width.thin} solid ${SEMANTIC_TOKENS.color.border.overlay}`,
+     background: SEMANTIC_TOKENS.color.bg.interactive.hover,
+     color: SEMANTIC_TOKENS.color.text.primary,
+     cursor: 'pointer',
+     fontSize: SEMANTIC_TOKENS.typography.fontSize.sm,
+     lineHeight: 1,
+     display: 'grid',
+     placeItems: 'center',
+   },
+   canvasZoom: {
+     minWidth: '50px',
+     textAlign: 'center' as const,
+     fontSize: SEMANTIC_TOKENS.typography.fontSize.xs,
+     color: SEMANTIC_TOKENS.color.text.secondary,
+     fontVariantNumeric: 'tabular-nums' as const,
+   },
+   spatialViewport: {
+     position: 'absolute' as const,
+     inset: 0,
+     transformOrigin: '0 0',
+   },
+   // Vector 卡片 - 原版轻量级样式（性能优化）
+   vectorItem: {
+     position: 'absolute' as const,
+     borderRadius: '4px',
+     border: '1px solid rgba(255, 255, 255, 0.12)',
+     background: 'rgba(255, 255, 255, 0.03)',
+     cursor: 'pointer',
+     transition: 'all 0.15s ease',
+     display: 'flex',
+     alignItems: 'center',
+     justifyContent: 'center',
+     overflow: 'hidden',
+   },
+   vectorItemHover: {
+     borderColor: 'rgba(6, 182, 212, 0.4)',
+     background: 'rgba(6, 182, 212, 0.06)',
+     zIndex: 10,
+   },
+   vectorItemSelected: {
+     borderColor: '#06b6d4',
+     background: 'rgba(6, 182, 212, 0.1)',
+     zIndex: 20,
+   },
+   vectorItemName: {
+     fontSize: '9px',
+     fontWeight: 400,
+     color: '#a1a1aa',
+     textAlign: 'center' as const,
+     padding: '2px 4px',
+     whiteSpace: 'nowrap' as const,
+     overflow: 'hidden',
+     textOverflow: 'ellipsis',
+     maxWidth: '100%',
+     zIndex: 2,
+   },
+   vectorItemNameSelected: {
+     color: '#67e8f9',
+   },
+   // SVG 预览背景 - 原版样式
+   vectorSvgPreview: {
+     position: 'absolute' as const,
+     top: 0,
+     left: 0,
+     width: '100%',
+     height: '100%',
+     backgroundSize: 'contain',
+     backgroundPosition: 'center',
+     backgroundRepeat: 'no-repeat',
+     opacity: 0.3,
+     pointerEvents: 'none' as const,
+     zIndex: 1,
+   },
+   vectorSvgPreviewHover: {
+     opacity: 0.5,
+   },
+   vectorSvgPreviewSelected: {
+     opacity: 0.6,
+   },
+   // 序号徽章 - 原版轻量级样式
+   vectorOrderBadge: {
+     position: 'absolute' as const,
+     top: '2px',
+     right: '2px',
+     width: '16px',
+     height: '16px',
+     borderRadius: '50%',
+     background: 'transparent',
+     border: '1px solid #06b6d4',
+     color: '#06b6d4',
+     fontSize: '8px',
+     fontWeight: 700,
+     display: 'flex',
+     alignItems: 'center',
+     justifyContent: 'center',
+     opacity: 0.9,
+     zIndex: 3,
+   },
+   // 幽灵序号（hover时显示）- 原版轻量级样式
+   vectorGhostBadge: {
+     position: 'absolute' as const,
+     top: '2px',
+     right: '2px',
+     width: '16px',
+     height: '16px',
+     borderRadius: '50%',
+     background: 'transparent',
+     border: '1px dashed #71717a',
+     color: '#71717a',
+     fontSize: '8px',
+     fontWeight: 600,
+     display: 'flex',
+     alignItems: 'center',
+     justifyContent: 'center',
+     opacity: 0,
+     transition: 'opacity 0.2s',
+     zIndex: 3,
+   },
+   vectorGhostBadgeVisible: {
+     opacity: 1,
+   },
+   orderBar: {
+     display: 'flex',
+     alignItems: 'center',
+     gap: SEMANTIC_TOKENS.spacing['2'],
+     padding: `${SEMANTIC_TOKENS.spacing['2.5']} ${SEMANTIC_TOKENS.spacing['3']}`,
+     borderTop: `${SEMANTIC_TOKENS.border.width.thin} solid ${SEMANTIC_TOKENS.color.border.weak}`,
+     background: SEMANTIC_TOKENS.color.bg.interactive.hover,
+     color: SEMANTIC_TOKENS.color.text.secondary,
+     fontSize: SEMANTIC_TOKENS.typography.fontSize.xs,
+   },
+   dangerBtn: {
+     borderColor: SEMANTIC_TOKENS.color.border.danger,
+     color: SEMANTIC_TOKENS.color.text.danger,
+     background: SEMANTIC_TOKENS.color.bg.accent.red,
+   },
+   thumbnails: {
+     borderTop: `${SEMANTIC_TOKENS.border.width.thin} solid ${SEMANTIC_TOKENS.color.border.weak}`,
+     background: SEMANTIC_TOKENS.color.surface.overlay,
+     backdropFilter: 'blur(10px)',
+   },
+   thumbnailsHeader: {
+     display: 'flex',
+     alignItems: 'center',
+     justifyContent: 'space-between',
+     padding: '10px 12px',
+   },
+   thumbnailsTitle: {
+     fontSize: '11px',
+     fontWeight: 600,
+     color: 'rgba(244, 244, 245, 0.95)',
+   },
+   thumbnailsGrid: {
+     display: 'grid',
+     gridTemplateColumns: 'repeat(6, minmax(0, 1fr))',
+     gap: '8px',
+     padding: '0 12px 12px 12px',
+     overflowX: 'auto' as const,
+   },
+   thumb: {
+     borderRadius: '12px',
+     border: '1px solid rgba(255, 255, 255, 0.10)',
+     background: 'rgba(255, 255, 255, 0.04)',
+     padding: '8px',
+     cursor: 'pointer',
+     minWidth: '92px',
+   },
+   thumbPreview: {
+     height: '44px',
+     borderRadius: '10px',
+     display: 'grid',
+     placeItems: 'center',
+     background: 'rgba(0, 0, 0, 0.25)',
+     border: '1px solid rgba(255, 255, 255, 0.06)',
+     marginBottom: '6px',
+   },
+   thumbName: {
+     fontSize: '10px',
+     color: 'rgba(228, 228, 231, 0.92)',
+     whiteSpace: 'nowrap' as const,
+     overflow: 'hidden',
+     textOverflow: 'ellipsis',
+   },
+   footer: {
+     display: 'flex',
+     alignItems: 'center',
+     justifyContent: 'space-between',
+     padding: '10px 12px',
+     borderTop: '1px solid rgba(255, 255, 255, 0.08)',
+     background: 'rgba(15, 15, 18, 0.72)',
+     backdropFilter: 'blur(10px)',
+   },
+   status: {
+     display: 'flex',
+     alignItems: 'center',
+     gap: '8px',
+     color: 'rgba(228, 228, 231, 0.92)',
+     fontSize: '11px',
+   },
+   statusDot: {
+     width: '8px',
+     height: '8px',
+     borderRadius: '999px',
+   },
+   info: {
+     color: 'rgba(161, 161, 170, 0.95)',
+     fontSize: '11px',
+     fontVariantNumeric: 'tabular-nums' as const,
+   },
+   // 折叠线样式
+   foldEdge: {
+     position: 'absolute' as const,
+     pointerEvents: 'none' as const,
+     zIndex: 50,
+   },
+   foldEdgeHorizontal: {
+     height: '2px',
+     background: '#ec4899',
+     boxShadow: '0 0 4px rgba(236, 72, 153, 0.5)',
+   },
+   foldEdgeVertical: {
+     width: '2px',
+     background: '#10b981',
+     boxShadow: '0 0 4px rgba(16, 185, 129, 0.5)',
+   },
+   // SVG 预览样式
+   svgPreview: {
+     position: 'absolute' as const,
+     inset: 0,
+     display: 'flex',
+     alignItems: 'center',
+     justifyContent: 'center',
+     overflow: 'hidden',
+   },
+   svgPreviewImg: {
+     maxWidth: '100%',
+     maxHeight: '100%',
+     objectFit: 'contain' as const,
+   },
+   // Clipmask 蓝色边框
+   clipmaskBorder: {
+     border: '2px solid #3b82f6',
+     boxShadow: '0 0 8px rgba(59, 130, 246, 0.4)',
+   },
+ };
+
+export const ViewportArea = memo(function ViewportArea() {
+  // 使用 useShallow 优化状态订阅，避免不必要的重渲染
+  const {
+    viewMode,
+    markedLayers,
+    clipmaskVectors,
+    vectorOrderMap,
+    hPanelId,
+    panelNameMap,
+    toggleVectorOrder,
+    setHPanelId,
+    setPanelNameMap,
+    largePreviewCraft,
+    setLargePreviewCraft,
+  } = useAppStore(
+    useShallow((s) => ({
+      viewMode: s.viewMode,
+      markedLayers: s.markedLayers,
+      clipmaskVectors: s.clipmaskVectors,
+      vectorOrderMap: s.vectorOrderMap,
+      hPanelId: s.hPanelId,
+      panelNameMap: s.panelNameMap,
+      toggleVectorOrder: s.toggleVectorOrder,
+      setHPanelId: s.setHPanelId,
+      setPanelNameMap: s.setPanelNameMap,
+      largePreviewCraft: s.largePreviewCraft,
+      setLargePreviewCraft: s.setLargePreviewCraft,
+    }))
+  );
+
+  const { sendMessage } = usePluginMessage();
+
+  // 画布状态
+  const [zoom, setZoom] = useState(100);
+  const [panX, setPanX] = useState(0);
+  const [panY, setPanY] = useState(0);
+  const [isPanning, setIsPanning] = useState(false);
+  const panStartRef = useRef({ x: 0, y: 0 });
+  const [showThumbnails, setShowThumbnails] = useState(true);
+  const canvasRef = useRef<HTMLDivElement>(null);
+  const [canvasSize, setCanvasSize] = useState({ width: 800, height: 500 });
+  const [hoveredId, setHoveredId] = useState<string | null>(null);
+
+  // 自动检测折叠线 - 基于 clipmaskVectors 的空间位置
+  const detectedFoldEdges = useMemo(() => {
+    if (clipmaskVectors.length < 2) return [];
+
+    // 转换为 foldLogic 需要的格式
+    const vectors = clipmaskVectors.map(layer => ({
+      id: layer.id,
+      name: layer.name,
+      x: (layer as any).x ?? layer.bounds?.x ?? 0,
+      y: (layer as any).y ?? layer.bounds?.y ?? 0,
+      width: (layer as any).width ?? layer.bounds?.width ?? 100,
+      height: (layer as any).height ?? layer.bounds?.height ?? 50,
+    }));
+
+    return detectFoldEdges(vectors);
+  }, [clipmaskVectors]);
+
+  // 监听画布尺寸变化
+  useEffect(() => {
+    const updateSize = () => {
+      if (canvasRef.current) {
+        const rect = canvasRef.current.getBoundingClientRect();
+        setCanvasSize({ width: rect.width - 24, height: rect.height - 24 }); // 减去 padding
+      }
+    };
+    updateSize();
+    window.addEventListener('resize', updateSize);
+    return () => window.removeEventListener('resize', updateSize);
+  }, []);
+
+  // 计算边界（缩放由 zoom 统一控制，避免 double-scale）
+  const layoutInfo = useMemo(() => {
+    const bounds = calculateBounds(clipmaskVectors);
+    const padding = 40;
+    return { bounds, padding };
+  }, [clipmaskVectors, canvasSize]);
+
+  // Removed console.debug for performance - was causing severe lag on slider changes
+  // useEffect(() => {
+  //   if (clipmaskVectors.length <= 2) {
+  //     const first = clipmaskVectors[0] as any;
+  //     console.debug('[ViewportArea] vectors=', clipmaskVectors.length, {
+  //       canvasSize,
+  //       bounds: layoutInfo.bounds,
+  //       scale: layoutInfo.scale,
+  //       first: first
+  //         ? {
+  //             id: first.id,
+  //             name: first.name,
+  //             x: first.x,
+  //             y: first.y,
+  //             width: first.width,
+  //             height: first.height,
+  //             bounds: first.bounds,
+  //           }
+  //         : null,
+  //     });
+  //   }
+  // }, [clipmaskVectors, canvasSize, layoutInfo.bounds, layoutInfo.scale]);
+
+  // 自动居中 vectors（当 vectors 或画布尺寸变化时）
+  useEffect(() => {
+    if (clipmaskVectors.length > 0 && canvasSize.width > 0) {
+      const { bounds, padding } = layoutInfo;
+      const availW = Math.max(1, canvasSize.width - padding * 2);
+      const availH = Math.max(1, canvasSize.height - padding * 2);
+      const fit = Math.min(availW / bounds.width, availH / bounds.height, 1);
+      const nextZoom = Math.max(25, Math.min(400, Math.round(fit * 100)));
+      const z = nextZoom / 100;
+
+      // 让内容（不含 padding）居中显示
+      const contentScreenW = bounds.width * z;
+      const contentScreenH = bounds.height * z;
+      const nextPanX = (canvasSize.width - contentScreenW) / 2 - padding * z;
+      const nextPanY = (canvasSize.height - contentScreenH) / 2 - padding * z;
+
+      setZoom(nextZoom);
+      setPanX(nextPanX);
+      setPanY(nextPanY);
+    }
+  }, [clipmaskVectors.length, canvasSize.width, canvasSize.height, layoutInfo]);
+
+  // 缩放控制
+  const handleZoomIn = useCallback(() => {
+    setZoom(prev => Math.min(prev + 25, 400));
+  }, []);
+
+  const handleZoomOut = useCallback(() => {
+    setZoom(prev => Math.max(prev - 25, 25));
+  }, []);
+
+  const handleResetView = useCallback(() => {
+    setZoom(100);
+    setPanX(0);
+    setPanY(0);
+  }, []);
+
+  const handleAutoName = useCallback(() => {
+    // 基于 H 面自动命名所有面板
+    if (!hPanelId) {
+      sendMessage({ type: 'AUTO_NAME_FOLDS' });
+      return;
+    }
+
+    const hPanel = clipmaskVectors.find(l => l.id === hPanelId);
+    if (!hPanel) return;
+
+    const newNameMap: Record<string, string> = { [hPanelId]: 'H' };
+    const selectedIds = Object.keys(vectorOrderMap);
+    const selectedLayers = clipmaskVectors.filter(l => selectedIds.includes(l.id));
+
+    const hLeft = (hPanel as any).x ?? hPanel.bounds?.x ?? 0;
+    const hRight = hLeft + ((hPanel as any).width ?? hPanel.bounds?.width ?? 100);
+    const hTop = (hPanel as any).y ?? hPanel.bounds?.y ?? 0;
+    const hBottom = hTop + ((hPanel as any).height ?? hPanel.bounds?.height ?? 50);
+
+    // 左边面板: L, F, R
+    const leftPanels = selectedLayers
+      .filter(v => {
+        if (v.id === hPanelId) return false;
+        const vx = (v as any).x ?? v.bounds?.x ?? 0;
+        const vy = (v as any).y ?? v.bounds?.y ?? 0;
+        const vh = (v as any).height ?? v.bounds?.height ?? 50;
+        const vw = (v as any).width ?? v.bounds?.width ?? 100;
+        const vCenterX = vx + vw / 2;
+        const hasYOverlap = (vy + vh) > hTop && vy < hBottom;
+        return hasYOverlap && vCenterX < hLeft;
+      })
+      .sort((a, b) => ((b as any).x ?? b.bounds?.x ?? 0) - ((a as any).x ?? a.bounds?.x ?? 0));
+
+    const leftNames = ['L', 'F', 'R'];
+    leftPanels.forEach((v, i) => {
+      newNameMap[v.id] = i < leftNames.length ? leftNames[i] : `R${i - 2}`;
+    });
+
+    // 右边面板: HR
+    selectedLayers.forEach(v => {
+      if (v.id === hPanelId || newNameMap[v.id]) return;
+      const vx = (v as any).x ?? v.bounds?.x ?? 0;
+      const vy = (v as any).y ?? v.bounds?.y ?? 0;
+      const vh = (v as any).height ?? v.bounds?.height ?? 50;
+      const hasYOverlap = (vy + vh) > hTop && vy < hBottom;
+      if (hasYOverlap && vx >= hRight - 5) {
+        let code = 'HR';
+        let suffix = 1;
+        while (Object.values(newNameMap).includes(code)) {
+          code = `HR${suffix++}`;
+        }
+        newNameMap[v.id] = code;
+      }
+    });
+
+    // 上下面板: HT, HB
+    selectedLayers.forEach(v => {
+      if (v.id === hPanelId || newNameMap[v.id]) return;
+      const vx = (v as any).x ?? v.bounds?.x ?? 0;
+      const vy = (v as any).y ?? v.bounds?.y ?? 0;
+      const vh = (v as any).height ?? v.bounds?.height ?? 50;
+      const vw = (v as any).width ?? v.bounds?.width ?? 100;
+      const vCenterX = vx + vw / 2;
+      const isAligned = vCenterX > hLeft && vCenterX < hRight;
+      if (isAligned) {
+        if (vy + vh <= hTop + 5) {
+          newNameMap[v.id] = 'HT';
+        } else if (vy >= hBottom - 5) {
+          newNameMap[v.id] = 'HB';
+        }
+      }
+    });
+
+    // 剩余面板: P1, P2...
+    let pIndex = 1;
+    selectedLayers.forEach(v => {
+      if (!newNameMap[v.id]) {
+        newNameMap[v.id] = `P${pIndex++}`;
+      }
+    });
+
+    setPanelNameMap(newNameMap);
+
+    // 发送消息更新 Figma 图层名称
+    sendMessage({
+      type: 'UPDATE_PANEL_NAMES',
+      payload: { nameMap: newNameMap }
+    });
+  }, [hPanelId, clipmaskVectors, vectorOrderMap, setPanelNameMap, sendMessage]);
+
+  // 获取下一个可用序号 - 使用 useMemo 缓存，避免每次渲染都计算
+  const nextAvailableNumber = useMemo(() => {
+    const usedNumbers = Object.values(vectorOrderMap);
+    let next = 1;
+    while (usedNumbers.includes(next)) next++;
+    return next;
+  }, [vectorOrderMap]);
+
+  // 单击切换 vector 选择（折叠顺序）
+  const handleVectorClick = useCallback((id: string) => {
+    toggleVectorOrder(id);
+    sendMessage({ type: 'selectNode', nodeId: id });
+  }, [toggleVectorOrder, sendMessage]);
+
+  // 双击设置 H 面板
+  const handleVectorDoubleClick = useCallback((id: string) => {
+    setHPanelId(id);
+    const newNameMap: Record<string, string> = { [id]: 'H' };
+    setPanelNameMap(newNameMap);
+  }, [setHPanelId, setPanelNameMap]);
+
+  // 画布拖动事件处理
+  const handleCanvasMouseDown = useCallback((e: React.MouseEvent) => {
+    // 中键或 Alt+左键 开始拖动
+    if (e.button === 1 || (e.button === 0 && e.altKey)) {
+      e.preventDefault();
+      setIsPanning(true);
+      panStartRef.current = { x: e.clientX - panX, y: e.clientY - panY };
+    }
+  }, [panX, panY]);
+
+  const handleCanvasMouseMove = useCallback((e: React.MouseEvent) => {
+    if (isPanning) {
+      setPanX(e.clientX - panStartRef.current.x);
+      setPanY(e.clientY - panStartRef.current.y);
+    }
+  }, [isPanning]);
+
+  const handleCanvasMouseUp = useCallback(() => {
+    setIsPanning(false);
+  }, []);
+
+  // 滚轮缩放（非 passive，允许 preventDefault 阻止页面滚动）
+  const handleWheelNative = useCallback((e: WheelEvent) => {
+    e.preventDefault(); // 阻止页面滚动
+    const delta = e.deltaY > 0 ? 0.9 : 1.1;
+    setZoom((prev) => Math.max(25, Math.min(400, Math.round(prev * delta))));
+  }, []);
+
+  useEffect(() => {
+    const el = canvasRef.current;
+    if (!el) return;
+    // 不使用 passive，允许 preventDefault
+    el.addEventListener('wheel', handleWheelNative, { passive: false });
+    return () => {
+      el.removeEventListener('wheel', handleWheelNative);
+    };
+  }, [handleWheelNative]);
+
+  const hasContent = clipmaskVectors.length > 0;
+
+  return (
+    <div style={styles.root}>
+      {/* Viewport Content */}
+      <div style={styles.content}>
+        {/* 3D 模式 */}
+        {viewMode === '3d' ? (
+          <div style={styles.placeholder}>
+            <div style={styles.placeholderCard}>
+              <div style={styles.placeholderIcon}>🎲</div>
+              <div style={styles.placeholderText}>
+                WebGPU 3D 渲染器<br />开发中...
+              </div>
+            </div>
+          </div>
+        ) : !hasContent ? (
+          /* 空状态 */
+          <div style={styles.placeholder} id="emptyState">
+            <div style={styles.placeholderCard}>
+              <div style={styles.placeholderIcon}>📦</div>
+              <div style={styles.placeholderText}>
+                Select a Frame in Figma to preview export regions
+              </div>
+            </div>
+          </div>
+        ) : (
+          /* 刀版图预览 */
+          <div style={styles.vectorContainer}>
+            <div style={styles.vectorCard}>
+              <div style={styles.vectorHeader}>
+                <span style={styles.vectorTitle}>刀版图预览</span>
+                <button
+                  style={styles.buttonGhost}
+                  onClick={handleAutoName}
+                  title="自动命名面板"
+                  type="button"
+                >
+                  <span aria-hidden>🏷️</span>
+                  自动命名
+                </button>
+                <span style={styles.vectorHint}>点击设置折叠顺序</span>
+              </div>
+
+              <div
+                style={styles.canvasArea}
+                ref={canvasRef}
+                onMouseDown={handleCanvasMouseDown}
+                onMouseMove={handleCanvasMouseMove}
+                onMouseUp={handleCanvasMouseUp}
+                onMouseLeave={handleCanvasMouseUp}
+              >
+                <div style={styles.canvasSurface}>
+                  {/* 画布控制工具栏 */}
+                  <div style={styles.canvasControls}>
+                    <button style={styles.canvasBtn} onClick={handleZoomOut} title="缩小" type="button">−</button>
+                    <span style={styles.canvasZoom}>{zoom}%</span>
+                    <button style={styles.canvasBtn} onClick={handleZoomIn} title="放大" type="button">+</button>
+                    <button style={styles.canvasBtn} onClick={handleResetView} title="重置" type="button">⟲</button>
+                  </div>
+
+                  {/* 空间视口 */}
+                  <div
+                    style={{
+                      ...styles.spatialViewport,
+                      transform: `translate(${panX}px, ${panY}px) scale(${zoom / 100})`,
+                      cursor: isPanning ? 'grabbing' : 'grab',
+                    }}
+                  >
+                    {/* 渲染矢量图层 - clipmask vectors 刀版图 */}
+                    {clipmaskVectors.map((layer) => {
+                      const isHovered = hoveredId === layer.id;
+                      const isOrdered = vectorOrderMap[layer.id] !== undefined;
+                      const orderNum = vectorOrderMap[layer.id];
+                      const nextNum = nextAvailableNumber;
+                      const isClipMask = layer.name?.toLowerCase().includes('clipmask') || layer.craftType === 'CLIPMASK';
+                      const isHPanel = hPanelId === layer.id;
+                      const displayName = panelNameMap[layer.id] || layer.name;
+
+                      // 获取原始坐标
+                      const lx = (layer as any).x ?? layer.bounds?.x ?? 0;
+                      const ly = (layer as any).y ?? layer.bounds?.y ?? 0;
+                      const lw = (layer as any).width ?? layer.bounds?.width ?? 100;
+                      const lh = (layer as any).height ?? layer.bounds?.height ?? 50;
+
+                      // 计算相对位置
+                      const { bounds, padding } = layoutInfo;
+                      const z = Math.max(0.01, zoom / 100);
+                      const left = padding + (lx - bounds.minX);
+                      const top = padding + (ly - bounds.minY);
+                      const minWorldW = 40 / z;
+                      const minWorldH = 30 / z;
+                      const width = Math.max(lw, minWorldW);
+                      const height = Math.max(lh, minWorldH);
+                      const compensatedLeft = left - (width - lw) / 2;
+                      const compensatedTop = top - (height - lh) / 2;
+
+                      // SVG 预览 data URL
+                      const svgDataUrl = layer.svgPreview
+                        ? `data:image/svg+xml;base64,${btoa(unescape(encodeURIComponent(layer.svgPreview)))}`
+                        : null;
+
+                      return (
+                        <div
+                          key={layer.id}
+                          style={{
+                            ...styles.vectorItem,
+                            ...(isHovered ? styles.vectorItemHover : null),
+                            ...(isOrdered ? styles.vectorItemSelected : null),
+                            ...(isClipMask ? styles.clipmaskBorder : null),
+                            ...(isHPanel ? { border: '2px solid #f59e0b', boxShadow: '0 0 8px rgba(245, 158, 11, 0.5)' } : null),
+                            left: compensatedLeft,
+                            top: compensatedTop,
+                            width,
+                            height,
+                          }}
+                          onClick={() => handleVectorClick(layer.id)}
+                          onDoubleClick={() => handleVectorDoubleClick(layer.id)}
+                          onMouseEnter={() => setHoveredId(layer.id)}
+                          onMouseLeave={() => setHoveredId(null)}
+                          role="button"
+                          tabIndex={0}
+                          title="单击选择 | 双击设为H面 | 右键设为Root"
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' || e.key === ' ') {
+                              e.preventDefault();
+                              handleVectorClick(layer.id);
+                            }
+                          }}
+                        >
+                          {/* SVG 预览背景 */}
+                          {svgDataUrl && (
+                            <div
+                              style={{
+                                ...styles.vectorSvgPreview,
+                                backgroundImage: `url('${svgDataUrl}')`,
+                                ...(isHovered ? styles.vectorSvgPreviewHover : null),
+                                ...(isOrdered ? styles.vectorSvgPreviewSelected : null),
+                              }}
+                            />
+                          )}
+
+                          {/* 序号徽章 */}
+                          {isOrdered ? (
+                            <div style={styles.vectorOrderBadge}>{orderNum}</div>
+                          ) : (
+                            <div
+                              style={{
+                                ...styles.vectorGhostBadge,
+                                ...(isHovered ? styles.vectorGhostBadgeVisible : null),
+                              }}
+                            >
+                              {nextNum}
+                            </div>
+                          )}
+
+                          {/* 名称标签 */}
+                          <span
+                            style={{
+                              ...styles.vectorItemName,
+                              ...(isOrdered ? styles.vectorItemNameSelected : null),
+                            }}
+                          >
+                            {displayName}
+                          </span>
+                        </div>
+                      );
+                    })}
+
+                    {/* 渲染折叠线 - 使用自动检测的折叠线 */}
+                    {detectedFoldEdges.map((edge) => {
+                      const isHorizontal = edge.type === 'horizontal';
+
+                      // 计算相对位置 (原版 ui.html 逻辑)
+                      const { bounds, padding } = layoutInfo;
+                      const z = Math.max(0.01, zoom / 100);
+                      const left = padding + (edge.x - bounds.minX);
+                      const top = padding + (edge.y - bounds.minY);
+                      const width = isHorizontal ? edge.width : (2 / z);
+                      const height = isHorizontal ? (2 / z) : edge.height;
+
+                      return (
+                        <div
+                          key={edge.id}
+                          style={{
+                            ...styles.foldEdge,
+                            ...(isHorizontal ? styles.foldEdgeHorizontal : styles.foldEdgeVertical),
+                            left,
+                            top,
+                            width,
+                            height,
+                          }}
+                          title={`${edge.id} (${edge.foldAngle}°)`}
+                        />
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+
+            </div>
+          </div>
+        )}
+
+        {/* 工艺大图预览 - 在 content 容器内，只覆盖视口区域 */}
+        <CraftLargePreview
+          craftType={largePreviewCraft}
+          onClose={() => setLargePreviewCraft(null)}
+        />
+      </div>
+
+      {/* 工艺预览缩略图区域 - 使用 CraftThumbnails 组件 */}
+      <CraftThumbnails
+        collapsed={!showThumbnails}
+        onToggle={() => setShowThumbnails(!showThumbnails)}
+      />
+
+      {/* Viewport Footer - 状态栏 */}
+      <div style={styles.footer}>
+        <div style={styles.status}>
+          <div style={{ ...styles.statusDot, background: '#10b981' }} />
+          <span>Ready</span>
+        </div>
+        <div style={styles.info}>
+          刀版图: {clipmaskVectors.length} | 工艺标注: {markedLayers.length}
+        </div>
+      </div>
+    </div>
+  );
+});

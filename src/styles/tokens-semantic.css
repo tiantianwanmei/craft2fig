@@ -1,0 +1,85 @@
+/**
+ * 🎯 Semantic Tokens - 语义层
+ * 基于 @genki/shared-theme 的语义命名体系
+ * 默认深色主题（Figma 插件风格）
+ *
+ * 对应关系：
+ * - 本地 primitive tokens 来自 BASE_TOKENS
+ * - 语义层遵循 Intent-based 命名规范
+ */
+
+:root {
+  /* ========== 文本颜色 (对应 SEMANTIC_TOKENS.fg) ========== */
+  --text-primary: var(--p-gray-50);
+  --text-secondary: var(--p-gray-400);
+  --text-tertiary: var(--p-gray-500);
+  --text-muted: var(--p-gray-600);
+  --text-inverse: var(--p-gray-900);
+  --text-brand: var(--p-cyan-400);
+
+  /* ========== 背景颜色 (对应 SEMANTIC_TOKENS.bg) ========== */
+  --bg-canvas: var(--p-gray-950);
+  --bg-surface: var(--p-gray-900);
+  --bg-surface-alt: var(--p-gray-800);
+  --bg-elevated: var(--p-gray-800);
+  --bg-inverse: var(--p-white);
+
+  /* ========== 交互颜色 (对应 SEMANTIC_TOKENS.bg.action) ========== */
+  --bg-action: var(--p-cyan-500);
+  --bg-action-hover: var(--p-cyan-400);
+  --bg-action-active: var(--p-cyan-300);
+
+  /* ========== 边框颜色 (对应 SEMANTIC_TOKENS.border) ========== */
+  --border-default: var(--p-gray-700);
+  --border-subtle: var(--p-gray-800);
+  --border-strong: var(--p-gray-600);
+  --border-focus: var(--p-cyan-500);
+  --border-error: var(--p-red-500);
+  --border-info: var(--p-cyan-400);
+
+  /* ========== 表面颜色 ========== */
+  --surface-canvas: var(--p-gray-950);
+  --surface-overlay: rgba(0, 0, 0, 0.9);
+  --surface-error: var(--p-gray-900);
+  --surface-info: rgba(6, 182, 212, 0.1);
+
+  /* ========== 按钮颜色 ========== */
+  --button-primary-bg: var(--p-cyan-500);
+  --button-primary-hover: var(--p-cyan-600);
+  --button-primary-text: var(--p-white);
+  --button-secondary-bg: rgba(255, 255, 255, 0.1);
+  --button-secondary-hover: rgba(255, 255, 255, 0.15);
+  --button-secondary-text: var(--p-white);
+
+  /* ========== 间距语义 ========== */
+  --space-xs: var(--p-space-1);
+  --space-sm: var(--p-space-2);
+  --space-md: var(--p-space-4);
+  --space-lg: var(--p-space-6);
+  --space-xl: var(--p-space-8);
+
+  /* ========== 圆角语义 ========== */
+  --radius-xs: var(--p-radius-sm);
+  --radius-sm: var(--p-radius-md);
+  --radius-md: var(--p-radius-lg);
+  --radius-lg: var(--p-radius-xl);
+
+  /* ========== 字体语义 ========== */
+  --font-xs: var(--p-text-xs);
+  --font-sm: var(--p-text-sm);
+  --font-base: var(--p-text-base);
+  --font-lg: var(--p-text-lg);
+  --font-xl: var(--p-text-xl);
+
+  /* ========== Print Master 专用 Token ========== */
+  --semantic-fg-text-primary: var(--text-primary);
+  --semantic-fg-text-secondary: var(--text-secondary);
+  --semantic-fg-text-tertiary: var(--text-tertiary);
+  --semantic-fg-text-brand: var(--text-brand);
+
+  --semantic-bg-elevated: var(--bg-elevated);
+  --semantic-bg-surface-secondary: var(--bg-surface-alt);
+  --semantic-bg-overlay-subtle: var(--border-subtle);
+
+  --semantic-border-divider-default: var(--border-default);
+}

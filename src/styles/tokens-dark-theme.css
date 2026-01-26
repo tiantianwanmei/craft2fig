@@ -1,0 +1,39 @@
+/**
+ * 🎨 Dark Theme - 专业黑灰配色
+ * 参考 Vector to 3D 界面风格
+ */
+
+:root {
+  /* ========== 背景颜色 ========== */
+  --bg-canvas: #1a1a1a;              /* 主画布背景 */
+  --bg-surface-primary: #202020;      /* 主表面 */
+  --bg-surface-secondary: #2a2a2a;    /* 次级表面 */
+  --bg-surface-elevated: #2d2d2d;     /* 悬浮表面 */
+  --bg-interactive-default: #2a2a2a;  /* 交互元素默认 */
+  --bg-interactive-hover: #333333;    /* 交互元素悬停 */
+  --bg-interactive-selected: #3a3a3a; /* 交互元素选中 */
+
+  /* ========== 文本颜色 ========== */
+  --fg-text-primary: rgba(255, 255, 255, 0.9);   /* 主文本 */
+  --fg-text-secondary: rgba(255, 255, 255, 0.6); /* 次级文本 */
+  --fg-text-tertiary: rgba(255, 255, 255, 0.4);  /* 三级文本 */
+  --fg-text-muted: rgba(255, 255, 255, 0.3);     /* 弱化文本 */
+
+  /* ========== 边框颜色 ========== */
+  --border-divider-default: #3a3a3a;        /* 默认分割线 */
+  --border-divider-weak: rgba(255, 255, 255, 0.08); /* 弱分割线 */
+  --border-interactive-default: #4a4a4a;    /* 交互边框 */
+  --border-interactive-hover: #5a5a5a;      /* 悬停边框 */
+  --border-interactive-focus: #3b82f6;      /* 聚焦边框 */
+
+  /* ========== 强调色 ========== */
+  --semantic-bg-action-primary-default: #3b82f6;  /* 主操作按钮 */
+  --semantic-bg-action-primary-hover: #60a5fa;    /* 主操作悬停 */
+  --semantic-bg-action-primary-active: #2563eb;   /* 主操作激活 */
+
+  /* ========== 叠加层 ========== */
+  --overlay-white-5: rgba(255, 255, 255, 0.05);
+  --overlay-white-10: rgba(255, 255, 255, 0.1);
+  --overlay-white-20: rgba(255, 255, 255, 0.2);
+  --overlay-black-50: rgba(0, 0, 0, 0.5);
+}

@@ -1,0 +1,152 @@
+/**
+ * 🎨 Primitive Tokens - 原子层
+ * 从 @genki/shared-theme 导入，保持统一的设计系统
+ * 所有值来自 packages/shared-theme/src/tokens/baseTokens.ts
+ */
+
+:root {
+  /* ========== 颜色原子 (来自 @genki/shared-theme) ========== */
+
+  /* 纯色 */
+  --p-white: #ffffff;
+  --p-black: #000000;
+
+  /* 灰度 (Neutral) - 来自 BASE_TOKENS.colors.neutral */
+  --p-gray-50: #fafafa;
+  --p-gray-100: #f5f5f5;
+  --p-gray-200: #e5e5e5;
+  --p-gray-300: #d4d4d4;
+  --p-gray-400: #a3a3a3;
+  --p-gray-500: #737373;
+  --p-gray-600: #525252;
+  --p-gray-700: #404040;
+  --p-gray-800: #262626;
+  --p-gray-900: #171717;
+  --p-gray-950: #0a0a0a;
+
+  /* 品牌色 Primary (Cyan) - 来自 BASE_TOKENS.colors.primary */
+  --p-cyan-50: #e0f7ff;
+  --p-cyan-100: #b3e9ff;
+  --p-cyan-200: #80daff;
+  --p-cyan-300: #4dcbff;
+  --p-cyan-400: #26bfff;
+  --p-cyan-500: #06b6d4;
+  --p-cyan-600: #0891b2;
+  --p-cyan-700: #0e7490;
+  --p-cyan-800: #155e75;
+  --p-cyan-900: #164e63;
+
+  /* ========== 间距原子 (来自 BASE_TOKENS.spacing) ========== */
+  --p-space-0: 0px;
+  --p-space-0-5: 2px;
+  --p-space-1: 4px;
+  --p-space-1-5: 6px;
+  --p-space-2: 8px;
+  --p-space-2-5: 10px;
+  --p-space-3: 12px;
+  --p-space-4: 16px;
+  --p-space-5: 20px;
+  --p-space-6: 24px;
+  --p-space-8: 32px;
+  --p-space-10: 40px;
+  --p-space-12: 48px;
+  --p-space-16: 64px;
+
+  /* ========== 圆角原子 (来自 BASE_TOKENS.borderRadius) ========== */
+  --p-radius-none: 0px;
+  --p-radius-xs: 2px;
+  --p-radius-sm: 4px;
+  --p-radius-md: 8px;
+  --p-radius-lg: 12px;
+  --p-radius-xl: 16px;
+  --p-radius-full: 9999px;
+
+  /* ========== 字体大小原子 (来自 BASE_TOKENS.fontSize) ========== */
+  --p-text-9: 9px;
+  --p-text-10: 10px;
+  --p-text-11: 11px;
+  --p-text-xs: 11px;
+  --p-text-sm: 12px;
+  --p-text-base: 14px;
+  --p-text-lg: 16px;
+  --p-text-xl: 18px;
+  --p-text-2xl: 20px;
+  --p-text-3xl: 24px;
+
+  /* ========== 透明度原子 (来自 BASE_TOKENS.opacity) ========== */
+  --p-alpha-0: 0;
+  --p-alpha-5: 0.05;
+  --p-alpha-10: 0.1;
+  --p-alpha-20: 0.2;
+  --p-alpha-30: 0.3;
+  --p-alpha-40: 0.4;
+  --p-alpha-50: 0.5;
+  --p-alpha-60: 0.6;
+  --p-alpha-70: 0.7;
+  --p-alpha-80: 0.8;
+  --p-alpha-90: 0.9;
+  --p-alpha-100: 1;
+
+  /* ========== 字体家族原子 (来自 BASE_TOKENS.fontFamily) ========== */
+  --p-font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  --p-font-mono: 'SF Mono', 'Monaco', 'Cascadia Code', 'Roboto Mono', 'Courier New', monospace;
+  --p-font-display: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+
+  /* ========== 字重原子 (来自 BASE_TOKENS.fontWeight) ========== */
+  --p-font-thin: 100;
+  --p-font-extralight: 200;
+  --p-font-light: 300;
+  --p-font-regular: 400;
+  --p-font-medium: 500;
+  --p-font-semibold: 600;
+  --p-font-bold: 700;
+  --p-font-extrabold: 800;
+  --p-font-black: 900;
+
+  /* ========== 阴影原子 (来自 BASE_TOKENS.shadow) ========== */
+  --p-shadow-none: none;
+  --p-shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+  --p-shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+  --p-shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+  --p-shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.1);
+  --p-shadow-2xl: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+  --p-shadow-inner: inset 0 2px 4px 0 rgba(0, 0, 0, 0.06);
+
+  /* ========== 行高原子 (来自 BASE_TOKENS.lineHeight) ========== */
+  --p-leading-none: 1;
+  --p-leading-tight: 1.25;
+  --p-leading-snug: 1.375;
+  --p-leading-normal: 1.5;
+  --p-leading-relaxed: 1.625;
+  --p-leading-loose: 2;
+
+  /* ========== 字间距原子 (来自 BASE_TOKENS.letterSpacing) ========== */
+  --p-tracking-tighter: -0.05em;
+  --p-tracking-tight: -0.025em;
+  --p-tracking-normal: 0em;
+  --p-tracking-wide: 0.025em;
+  --p-tracking-wider: 0.05em;
+  --p-tracking-widest: 0.1em;
+
+  /* ========== 动画时长原子 (来自 BASE_TOKENS.duration) ========== */
+  --p-duration-instant: 75ms;
+  --p-duration-fast: 150ms;
+  --p-duration-base: 250ms;
+  --p-duration-slow: 400ms;
+  --p-duration-deliberate: 600ms;
+
+  /* ========== 动画缓动原子 (来自 BASE_TOKENS.easing) ========== */
+  --p-easing-standard: cubic-bezier(0.4, 0, 0.2, 1);
+  --p-easing-decel: cubic-bezier(0.0, 0, 0.2, 1);
+  --p-easing-accel: cubic-bezier(0.4, 0, 1, 1);
+  --p-easing-sharp: cubic-bezier(0.4, 0, 0.6, 1);
+
+  /* ========== Z-Index 原子 (来自 BASE_TOKENS.zIndex) ========== */
+  --p-z-base: 1;
+  --p-z-sticky: 20;
+  --p-z-popover: 40;
+  --p-z-toast: 60;
+  --p-z-overlay: 80;
+  --p-z-modal: 100;
+  --p-z-tooltip: 120;
+}

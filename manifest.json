@@ -1,0 +1,12 @@
+{
+  "name": "Genki Packaging Exporter v2 (React)",
+  "id": "genki-packaging-exporter-v2",
+  "api": "1.0.0",
+  "main": "dist/code.js",
+  "ui": "dist/index.html",
+  "editorType": ["figma"],
+  "networkAccess": {
+    "allowedDomains": ["*"],
+    "reasoning": "Plugin needs to load HDR environment maps and 3D assets from CDN"
+  }
+}

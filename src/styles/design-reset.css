@@ -1,0 +1,198 @@
+/**
+ * 🎨 Design Reset - 极简设计系统重置
+ * 参考 Figma 原生 + Shadcn UI 设计理念
+ * 一次性解决所有视觉噪音问题
+ */
+
+/* ========== 全局重置：去除所有视觉噪音 ========== */
+* {
+  /* 去除所有默认边框 */
+  border: none !important;
+  /* 去除所有阴影 */
+  box-shadow: none !important;
+  /* 去除所有轮廓 */
+  outline: none !important;
+}
+
+/* ========== 精致线条系统 ========== */
+:root {
+  --border-width: 1px;           /* 极细边框 */
+  --divider-opacity: 0.06;       /* 极淡分割线 */
+}
+
+/* 只在必要的地方添加极细分割线 */
+.divider-bottom {
+  border-bottom: var(--border-width) solid rgba(255, 255, 255, var(--divider-opacity)) !important;
+}
+
+.divider-top {
+  border-top: var(--border-width) solid rgba(255, 255, 255, var(--divider-opacity)) !important;
+}
+
+/* ========== Tab 系统：Figma 原生风格 ========== */
+.tab-bar {
+  display: flex;
+  gap: 0;
+  padding: 0;
+  background: transparent;
+  border-bottom: var(--border-width) solid rgba(255, 255, 255, var(--divider-opacity)) !important;
+}
+
+.tab-item {
+  position: relative;
+  padding: var(--p-space-2) var(--p-space-4);
+  background: transparent;
+  color: var(--fg-text-secondary);
+  font-size: var(--p-text-xs);
+  font-weight: var(--p-font-medium);
+  cursor: pointer;
+  transition: color var(--p-duration-fast) ease;
+  border: none !important;
+}
+
+.tab-item:hover {
+  color: var(--fg-text-primary);
+  background: transparent;
+}
+
+.tab-item.active {
+  color: var(--fg-text-primary);
+  background: transparent;
+}
+
+/* 活动 Tab 的底部指示器 */
+.tab-item.active::after {
+  content: '';
+  position: absolute;
+  bottom: -1px;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: var(--semantic-bg-action-primary-default);
+}
+
+/* ========== 按钮系统：极简风格 ========== */
+.btn-minimal {
+  padding: var(--p-space-1-5) var(--p-space-3);
+  background: transparent;
+  color: var(--fg-text-secondary);
+  font-size: var(--p-text-xs);
+  font-weight: var(--p-font-medium);
+  cursor: pointer;
+  transition: all var(--p-duration-fast) ease;
+  border-radius: var(--p-radius-sm);
+}
+
+.btn-minimal:hover {
+  background: var(--overlay-white-5);
+  color: var(--fg-text-primary);
+}
+
+.btn-minimal:active {
+  background: var(--overlay-white-10);
+}
+
+/* ========== 下拉箭头：精致设计 ========== */
+.arrow-icon {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  opacity: 0.5;
+  transition: all var(--p-duration-fast) ease;
+}
+
+.arrow-icon svg {
+  width: 100%;
+  height: 100%;
+  stroke-width: 1.5;
+}
+
+/* ========== Toggle 开关：精致设计 ========== */
+.toggle-minimal {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--p-space-2);
+  background: transparent;
+  cursor: pointer;
+  transition: background var(--p-duration-fast) ease;
+  border-radius: var(--p-radius-sm);
+}
+
+.toggle-minimal:hover {
+  background: var(--overlay-white-5);
+}
+
+.toggle-switch-minimal {
+  position: relative;
+  width: 32px;
+  height: 18px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 9px;
+  transition: background var(--p-duration-base) ease;
+}
+
+.toggle-switch-minimal::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 14px;
+  height: 14px;
+  background: white;
+  border-radius: 50%;
+  transition: transform var(--p-duration-base) ease;
+}
+
+.toggle-switch-minimal.active {
+  background: var(--semantic-bg-action-primary-default);
+}
+
+.toggle-switch-minimal.active::after {
+  transform: translateX(14px);
+}
+
+/* ========== 输入框：极简风格 ========== */
+.input-minimal {
+  padding: var(--p-space-1-5) var(--p-space-2);
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--fg-text-primary);
+  font-size: var(--p-text-xs);
+  border-radius: var(--p-radius-sm);
+  transition: background var(--p-duration-fast) ease;
+}
+
+.input-minimal:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.input-minimal:focus {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+/* ========== 去除所有不必要的装饰 ========== */
+.no-decoration {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  outline: none !important;
+}
+
+/* ========== 精致的分割线 ========== */
+.divider-subtle {
+  height: 1px;
+  background: rgba(255, 255, 255, 0.06);
+  margin: var(--p-space-4) 0;
+}
+
+/* ========== 卡片：极简风格 ========== */
+.card-minimal {
+  background: rgba(255, 255, 255, 0.02);
+  border-radius: var(--p-radius-md);
+  padding: var(--p-space-3);
+  transition: background var(--p-duration-fast) ease;
+}
+
+.card-minimal:hover {
+  background: rgba(255, 255, 255, 0.04);
+}

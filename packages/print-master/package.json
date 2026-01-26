@@ -1,0 +1,33 @@
+{
+  "name": "@genki/print-master",
+  "version": "1.0.0",
+  "description": "PrintMaster system for professional print production workflow",
+  "main": "./src/index.ts",
+  "module": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": {
+      "import": "./src/index.ts",
+      "require": "./src/index.ts",
+      "types": "./src/index.ts"
+    }
+  },
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch"
+  },
+  "keywords": [
+    "print",
+    "cmyk",
+    "dieline",
+    "pdf",
+    "export"
+  ],
+  "peerDependencies": {
+    "react": "^18.0.0",
+    "react-dom": "^18.0.0"
+  },
+  "dependencies": {
+    "zustand": "^4.4.0"
+  }
+}

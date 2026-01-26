@@ -1,0 +1,1 @@
+export { FigmaHDRService } from './FigmaHDRService';

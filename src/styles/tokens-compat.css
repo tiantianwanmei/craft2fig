@@ -1,0 +1,294 @@
+/**
+ * 🔄 Compatibility Layer - 兼容旧变量名
+ */
+
+:root {
+  /* ========== 间距兼容 (spacing-*) ========== */
+  --spacing-0-5: 2px;
+  --spacing-0-75: 3px;
+  --spacing-1: 4px;
+  --spacing-1-5: 6px;
+  --spacing-2: 8px;
+  --spacing-2-5: 10px;
+  --spacing-3: 12px;
+  --spacing-4: 16px;
+  --spacing-5: 20px;
+  --spacing-6: 24px;
+  --spacing-8: 32px;
+  --spacing-10: 40px;
+  --spacing-12: 48px;
+  --spacing-16: 64px;
+
+  /* Tailwind 风格别名 */
+  --spacing-0_5: 2px;
+  --spacing-1_5: 6px;
+  --spacing-2_5: 10px;
+
+  /* ========== 圆角兼容 (radius-*) ========== */
+  --radius-xs: 2px;
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --radius-xl: 12px;
+  --radius-2xl: 16px;
+  --radius-full: 9999px;
+
+  /* ========== 字体大小兼容 (text-*, fontSize-*) ========== */
+  --text-xs: 11px;
+  --text-sm: 12px;
+  --text-base: 14px;
+  --text-lg: 16px;
+  --text-xl: 18px;
+  --text-2xl: 20px;
+  --text-3xl: 24px;
+  --fontSize-xs: 11px;
+  --fontSize-sm: 12px;
+  --fontSize-base: 14px;
+  --fontSize-lg: 16px;
+
+  /* ========== 语义颜色兼容 ========== */
+  --semantic-fg-text-primary: #fafafa;
+  --semantic-fg-text-secondary: #a3a3a3;
+  --semantic-fg-text-tertiary: #737373;
+  --semantic-fg-text-muted: #525252;
+  --semantic-fg-text-brand: #22d3ee;
+  --semantic-bg-canvas-default: #0a0a0a;
+  --semantic-bg-surface-primary: #171717;
+  --semantic-bg-surface-secondary: #262626;
+  --semantic-bg-action-primary-default: #06b6d4;
+  --semantic-bg-action-primary-hover: #22d3ee;
+  --semantic-bg-action-primary-active: #67e8f9;
+  --semantic-border-divider-default: #404040;
+
+  --semantic-bg-overlay-subtle: var(--overlay-white-10);
+
+  --semantic-bg-subtle: var(--p-gray-900);
+  --semantic-bg-muted: var(--p-gray-800);
+  --semantic-border-light: var(--p-gray-800);
+  --semantic-border-default: var(--p-gray-700);
+  --semantic-text-disabled: var(--p-gray-600);
+  --semantic-text-tertiary: var(--p-gray-500);
+  --semantic-text-gray: var(--p-gray-500);
+
+  --semantic-bg-cyan-subtle: var(--p-cyan-50);
+  --semantic-bg-cyan-light: var(--p-cyan-100);
+  --semantic-color-cyan-light: var(--p-cyan-200);
+  --semantic-color-cyan-medium: var(--p-cyan-300);
+  --semantic-text-brand-light: var(--p-cyan-400);
+  --semantic-text-brand: var(--p-cyan-500);
+  --semantic-text-brand-alt: var(--p-cyan-600);
+  --semantic-color-cyan-dark: var(--p-cyan-700);
+  --semantic-color-cyan-darker: var(--p-cyan-800);
+  --semantic-color-teal-dark: #164e63;
+
+  --semantic-bg-blue-light: #dbeafe;
+  --semantic-bg-blue-subtle: rgba(59, 130, 246, 0.12);
+  --semantic-status-info-light: #bfdbfe;
+  --semantic-text-info: #60a5fa;
+
+  --semantic-bg-green-light: #dcfce7;
+  --semantic-status-success-light: #86efac;
+  --semantic-status-success: #10b981;
+  --semantic-color-green: #22c55e;
+  --semantic-color-green-dark: #16a34a;
+
+  --semantic-bg-red-light: #fee2e2;
+  --semantic-status-error-bg: rgba(239, 68, 68, 0.1);
+  --semantic-status-error-light: #fca5a5;
+  --semantic-status-error: #ef4444;
+  --semantic-status-error-dark: #dc2626;
+
+  --semantic-bg-amber-light: #fef3c7;
+  --semantic-status-warning-bg: rgba(245, 158, 11, 0.1);
+  --semantic-status-warning-light: #fcd34d;
+  --semantic-status-warning: #f59e0b;
+  --semantic-status-warning-dark: #d97706;
+
+  --semantic-bg-purple-light: #f3e8ff;
+  --semantic-color-violet: #a78bfa;
+  --semantic-color-indigo: #818cf8;
+  --semantic-color-purple: #a78bfa;
+  --semantic-text-accent: #6366f1;
+  --semantic-text-accent-alt: #4f46e5;
+
+  /* ========== 基础颜色兼容 ========== */
+  --color-white: #ffffff;
+  --color-black: #000000;
+  --color-gray-50: #fafafa;
+  --color-gray-100: #f5f5f5;
+  --color-gray-200: #e5e5e5;
+  --color-gray-300: #d4d4d4;
+  --color-gray-400: #a3a3a3;
+  --color-gray-500: #737373;
+  --color-gray-600: #525252;
+  --color-gray-700: #404040;
+  --color-gray-800: #262626;
+  --color-gray-900: #171717;
+  --color-gray-950: #0a0a0a;
+  --color-cyan-400: #22d3ee;
+  --color-cyan-500: #06b6d4;
+  --color-cyan-600: #0891b2;
+
+  --white: var(--p-white);
+  --black: var(--p-black);
+
+  --primary-50: var(--p-cyan-50);
+  --primary-100: var(--p-cyan-100);
+  --primary-200: var(--p-cyan-200);
+  --primary-300: var(--p-cyan-300);
+  --primary-400: var(--p-cyan-400);
+  --primary-500: var(--p-cyan-500);
+  --primary-600: var(--p-cyan-600);
+  --primary-700: var(--p-cyan-700);
+  --primary-800: var(--p-cyan-800);
+  --primary-900: #164e63;
+
+  --neutral-100: var(--p-gray-100);
+  --neutral-200: var(--p-gray-200);
+  --neutral-300: var(--p-gray-300);
+  --neutral-400: var(--p-gray-400);
+  --neutral-500: var(--p-gray-500);
+  --neutral-600: var(--p-gray-600);
+  --neutral-700: var(--p-gray-700);
+  --neutral-800: var(--p-gray-800);
+  --neutral-900: var(--p-gray-900);
+  --neutral-950: var(--p-gray-950);
+
+  --success-500: #10b981;
+  --success-600: #059669;
+  --danger-500: #ef4444;
+  --danger-600: #dc2626;
+  --danger-700: #b91c1c;
+  --warning-500: #f59e0b;
+  --warning-600: #d97706;
+
+  --blue-200: #bfdbfe;
+  --blue-400: #60a5fa;
+  --blue-500: #3b82f6;
+  --blue-600: #2563eb;
+  --blue-700: #1d4ed8;
+
+  --accent-700: #7e22ce;
+
+  /* ========== 透明度颜色兼容 ========== */
+  --overlay-white-5: rgba(255, 255, 255, 0.05);
+  --overlay-white-10: rgba(255, 255, 255, 0.1);
+  --overlay-white-20: rgba(255, 255, 255, 0.2);
+  --overlay-white-60: rgba(255, 255, 255, 0.6);
+  --overlay-black-10: rgba(0, 0, 0, 0.1);
+  --overlay-black-30: rgba(0, 0, 0, 0.3);
+  --overlay-black-50: rgba(0, 0, 0, 0.5);
+
+  /* ========== 语义间距 (space-*) ========== */
+  --space-xxs: 2px;
+  --space-xs: 4px;
+  --space-sm: 8px;
+  --space-md: 16px;
+  --space-lg: 24px;
+  --space-xl: 32px;
+
+  /* ========== 前景色 (fg-*) ========== */
+  --fg-text-primary: #fafafa;
+  --fg-text-secondary: #a3a3a3;
+  --fg-text-tertiary: #737373;
+  --fg-text-muted: #525252;
+  --fg-status-danger: #ef4444;
+
+  /* ========== 背景色 (bg-*) ========== */
+  --bg-surface-elevated: rgba(38, 38, 38, 0.95);
+  --bg-interactive-default: rgba(64, 64, 64, 0.6);
+  --bg-action-primary-default: #06b6d4;
+  --bg-action-brand-default: rgba(6, 182, 212, 0.15);
+  --bg-status-danger-subtle: rgba(239, 68, 68, 0.1);
+
+  /* ========== 边框色 (border-*) ========== */
+  --border-interactive-default: rgba(255, 255, 255, 0.1);
+  --border-interactive-focus: #06b6d4;
+  --border-divider-default: rgba(255, 255, 255, 0.1);
+  --border-divider-weak: rgba(255, 255, 255, 0.05);
+  --border-divider-strong: rgba(255, 255, 255, 0.2);
+  --border-status-danger: #ef4444;
+
+  /* ========== 圆角 (radius-*) ========== */
+  --radius-interactive: 4px;
+
+  /* ========== 字体 (font/base-*) ========== */
+  --semantic-font-body: 14px;
+  --semantic-font-caption: 11px;
+  --base-fontFamily-mono: 'SF Mono', Monaco, monospace;
+  --base-borderWidth-thin: 1px;
+
+  /* ========== 阴影 ========== */
+  --shadow-panel: 0 0 40px rgba(0, 0, 0, 0.3);
+
+  /* ========== 语义背景别名 (semantic-bg-*) ========== */
+  --semantic-bg-primary: var(--semantic-bg-surface-primary);
+  --semantic-bg-secondary: var(--semantic-bg-surface-secondary);
+  --semantic-bg-tertiary: #1f1f1f;
+
+  /* ========== 语义文字别名 (semantic-text-*) ========== */
+  --semantic-text-primary: var(--semantic-fg-text-primary);
+  --semantic-text-secondary: var(--semantic-fg-text-secondary);
+  --semantic-text-tertiary: var(--semantic-fg-text-tertiary);
+
+  /* ========== 语义边框别名 (semantic-border-*) ========== */
+  --semantic-border-default: var(--semantic-border-divider-default);
+  --semantic-border-subtle: rgba(255, 255, 255, 0.05);
+  --semantic-border-focus: var(--semantic-bg-action-primary-default);
+
+  /* ========== 语义间距别名 (semantic-space-*) ========== */
+  --semantic-space-xxs: var(--space-xxs);
+  --semantic-space-xs: var(--space-xs);
+  --semantic-space-sm: var(--space-sm);
+  --semantic-space-md: var(--space-md);
+  --semantic-space-lg: var(--space-lg);
+  --semantic-space-xl: var(--space-xl);
+
+  /* ========== 语义圆角别名 (semantic-radius-*) ========== */
+  --semantic-radius-xs: var(--radius-xs);
+  --semantic-radius-sm: var(--radius-sm);
+  --semantic-radius-md: var(--radius-md);
+  --semantic-radius-lg: var(--radius-lg);
+  --semantic-radius-xl: var(--radius-xl);
+  --semantic-radius-full: var(--radius-full);
+
+  /* ========== 语义字体别名 ========== */
+  --semantic-font-heading-sm: 14px;
+  --semantic-font-body-sm: 12px;
+
+  /* ========== 基础颜色别名 ========== */
+  --base-color-white: #ffffff;
+  --base-font-weight-medium: 500;
+  --base-font-weight-semibold: 600;
+
+  /* ========== PBR Panel 组件变量 ========== */
+  --pbr-panel-bg-elevated: rgba(38, 38, 38, 0.95);
+  --pbr-panel-border-default: rgba(255, 255, 255, 0.1);
+  --pbr-panel-shadow-md: 0 4px 12px rgba(0, 0, 0, 0.3);
+  --pbr-spacing-panel: 16px;
+  --pbr-spacing-section: 12px;
+  --pbr-spacing-control: 8px;
+  --pbr-slider-label-fg: #a3a3a3;
+  --pbr-slider-track-bg: rgba(255, 255, 255, 0.1);
+  --pbr-slider-thumb-bg-default: #06b6d4;
+  --pbr-slider-thumb-bg-hover: #22d3ee;
+  --pbr-slider-thumb-border: #ffffff;
+  --pbr-preview-bg: rgba(23, 23, 23, 0.8);
+  --pbr-preview-border: rgba(255, 255, 255, 0.05);
+  --pbr-preview-loading-fg: #737373;
+
+  /* ========== 前景色别名 ========== */
+  --fg-primary: #fafafa;
+  --fg-success: #22c55e;
+
+  /* ========== 尺寸别名 ========== */
+  --size-4: 16px;
+
+  /* ========== Section 间距 ========== */
+  --section-margin-bottom: var(--p-space-6);
+  --section-title-margin-bottom: var(--p-space-3);
+  --toggle-margin-bottom: var(--p-space-2);
+  --toggle-padding-x: var(--p-space-3);
+  --toggle-padding-y: var(--p-space-2);
+  --panel-content-padding: var(--p-space-4);
+}
