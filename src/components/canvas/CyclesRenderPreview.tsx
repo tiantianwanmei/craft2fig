@@ -929,7 +929,7 @@ interface CraftScene3DProps {
 }
 
 const CraftScene3D: React.FC<CraftScene3DProps> = ({ panels, craftLayers, foldProgress, foldSequence, rootPanelId, drivenMap, renderMode, geometryMode, showSkeleton, showWireframe, foldEdgeWidth, pbrConfig }) => {
-  // 🔥 提升模型缩放，避免相对 HDR 过小导致视角难调
+  // 提升模型缩放，避免相对 HDR 过小导致视角难调
   const scale = 1.0;
   const thickness = 0.8;
 
@@ -973,11 +973,11 @@ const CraftScene3D: React.FC<CraftScene3DProps> = ({ panels, craftLayers, foldPr
     }
   }, [renderMode]);
 
-  // 调试日志 - 检查贴图数据
+  // 检查贴图数据
   useEffect(() => {
-    console.log('🎨 CraftScene3D - panels:', panels.length);
-    console.log('🎨 CraftScene3D - craftLayers:', craftLayers.length);
-    console.log('🎨 CraftScene3D - rootPanelId:', rootPanelId);
+    console.log('CraftScene3D - panels:', panels.length);
+    console.log('CraftScene3D - craftLayers:', craftLayers.length);
+    console.log('CraftScene3D - rootPanelId:', rootPanelId);
     console.log('🎨 CraftScene3D - drivenMap:', drivenMap);
     panels.forEach((p, i) => {
       const hasPng = !!p.pngPreview;

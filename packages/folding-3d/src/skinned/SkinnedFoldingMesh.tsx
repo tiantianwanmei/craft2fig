@@ -175,10 +175,10 @@ function buildStitchedGeometry(
   };
   let vertexCount = 0;
 
-  // 🔧 不应用居中偏移，使用原始坐标
+  // 不应用居中偏移，使用原始坐标
   const alignOffset = { x: 0, y: 0 };
 
-  // 🆕 参数化 Gap 定义：优先使用节点的 gapSize，否则使用全局配置，最后回退到默认值
+  // 参数化 Gap 定义：优先使用节点的 gapSize，否则使用全局配置，最后回退到默认值
   const defaultGapSize = Math.max((config.thickness || 1) * 1.5, 1.5);
   const gapSize = config.gapSize ?? defaultGapSize;
 
