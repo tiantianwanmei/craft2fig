@@ -6,7 +6,10 @@
 import { useCallback, useEffect, useRef } from 'react';
 import { useAppStore } from '../store';
 import type { UIMessage, PluginMessage, PluginMessageType } from '../types/messages';
-import { autoInferFoldSequence, type Vector } from '../utils/foldLogic';
+import { autoInferFoldSequence } from '../utils/foldLogic';
+import { occlusionComputeClient } from '../workers/occlusionComputeClient';
+import { cropComputeClient } from '../workers/cropComputeClient';
+import { foldInferComputeClient } from '../workers/foldInferComputeClient';
 
 type MessageHandler<T extends PluginMessage = PluginMessage> = (message: T) => void;
 
@@ -19,14 +22,352 @@ function toHeightMapRGBA(src: Uint8ClampedArray): Uint8ClampedArray {
   return src;
 }
 
+function downloadJsonFile(data: any, filename: string) {
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+function downloadDataUrl(dataUrl: string, filename: string) {
+  const a = document.createElement('a');
+  a.href = dataUrl;
+  a.download = filename;
+  a.click();
+}
+
+const processedUnifiedExportIds = new Set<string>();
+
+let cachedUnifiedExportDirHandle: any | null = null;
+
+async function pickUnifiedExportDirectoryOnce(): Promise<boolean> {
+  const dirPicker = (window as any).showDirectoryPicker as undefined | (() => Promise<any>);
+  if (!dirPicker) return false;
+  if (cachedUnifiedExportDirHandle) return true;
+  try {
+    cachedUnifiedExportDirHandle = await dirPicker();
+    return Boolean(cachedUnifiedExportDirHandle);
+  } catch (_e) {
+    cachedUnifiedExportDirHandle = null;
+    return false;
+  }
+}
+
+async function saveUnifiedExportToDirectory(data: any, baseName: string) {
+  const dir = cachedUnifiedExportDirHandle;
+  if (!dir) return false;
+  const jsonHandle = await dir.getFileHandle(`${baseName}.json`, { create: true });
+  const jsonWritable = await jsonHandle.createWritable();
+  await jsonWritable.write(JSON.stringify(data, null, 2));
+  await jsonWritable.close();
+
+  const masks = Array.isArray(data.masks) ? data.masks : [];
+  if (masks.length > 0) {
+    const masksDir = await dir.getDirectoryHandle(`${baseName}_masks`, { create: true });
+    const seen = new Set<string>();
+    for (const m of masks) {
+      if (!m || typeof m.texture !== 'string') continue;
+      const craft = String(m.craftType || 'mask');
+      const id = String(m.id || 'unknown');
+      const key = `${craft}|${id}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+
+      const fileHandle = await masksDir.getFileHandle(`${craft}_${id}.png`, { create: true });
+      const writable = await fileHandle.createWritable();
+      const resp = await fetch(m.texture);
+      const blob = await resp.blob();
+      await writable.write(blob);
+      await writable.close();
+    }
+  }
+  return true;
+}
+
 // 获取稳定的 store actions（不订阅状态变化）
 const getStoreActions = () => useAppStore.getState();
 
 const latestOcclusionRequestIdByLayer = new Map<string, number>();
 
+const processedOcclusionRequestIdByLayer = new Map<string, number>();
+const occlusionPreviewBlobUrlByLayer = new Map<string, string>();
+const occlusionLockUntilByLayer = new Map<string, number>();
+
+const latestNormalPreviewSeqByLayer = new Map<string, number>();
+let nextNormalPreviewSeq = 1;
+
+type LossyPreviewResult = { url: string; width: number; height: number } | null;
+
+async function encodeLossyPreviewFromPng(
+  pngBytes: Uint8Array,
+  width: number,
+  height: number,
+  options?: { maxSide?: number }
+): Promise<LossyPreviewResult> {
+  const maxSide = typeof options?.maxSide === 'number' ? options.maxSide : 1024;
+
+  const bytes = new Uint8Array(pngBytes);
+  const blob = new Blob([bytes], { type: 'image/png' });
+
+  let bitmap: ImageBitmap | null = null;
+  try {
+    bitmap = await createImageBitmap(blob);
+  } catch (_e) {
+    bitmap = null;
+  }
+
+  if (!bitmap) return null;
+
+  const srcW = Math.max(1, bitmap.width || width);
+  const srcH = Math.max(1, bitmap.height || height);
+  const scale = Math.min(1, maxSide / Math.max(srcW, srcH));
+  const dstW = Math.max(1, Math.round(srcW * scale));
+  const dstH = Math.max(1, Math.round(srcH * scale));
+
+  let canvas: OffscreenCanvas | HTMLCanvasElement;
+  let ctx: OffscreenCanvasRenderingContext2D | CanvasRenderingContext2D | null = null;
+  if (typeof (globalThis as any).OffscreenCanvas !== 'undefined') {
+    canvas = new (globalThis as any).OffscreenCanvas(dstW, dstH) as OffscreenCanvas;
+    ctx = canvas.getContext('2d', { alpha: true } as any) as OffscreenCanvasRenderingContext2D | null;
+  } else {
+    const c = document.createElement('canvas');
+    c.width = dstW;
+    c.height = dstH;
+    canvas = c;
+    ctx = c.getContext('2d', { alpha: true } as any) as CanvasRenderingContext2D | null;
+  }
+
+  if (!ctx) {
+    try {
+      bitmap.close();
+    } catch (_e) {
+      // ignore
+    }
+    return null;
+  }
+
+  ctx.drawImage(bitmap as any, 0, 0, dstW, dstH);
+  try {
+    bitmap.close();
+  } catch (_e) {
+    // ignore
+  }
+
+  const toBlob = async (type: string, quality?: number): Promise<Blob | null> => {
+    try {
+      if ('convertToBlob' in canvas) {
+        return await (canvas as OffscreenCanvas).convertToBlob({ type, quality } as any);
+      }
+      return await new Promise<Blob | null>((resolve) => {
+        (canvas as HTMLCanvasElement).toBlob((b) => resolve(b), type, quality);
+      });
+    } catch (_e) {
+      return null;
+    }
+  };
+
+  // Prefer AVIF, then WebP, then JPEG (lossy) as last resort.
+  const avif = await toBlob('image/avif');
+  const webp = avif ? null : await toBlob('image/webp', 0.72);
+  const jpg = avif || webp ? null : await toBlob('image/jpeg', 0.72);
+  const out = avif || webp || jpg;
+  if (!out) return null;
+
+  const url = URL.createObjectURL(out);
+  return { url, width: dstW, height: dstH };
+}
+
+async function encodeLossyPreviewFromRgba(
+  rgba: Uint8ClampedArray,
+  width: number,
+  height: number,
+  options?: { maxSide?: number }
+): Promise<LossyPreviewResult> {
+  const maxSide = typeof options?.maxSide === 'number' ? options.maxSide : 1024;
+  const srcW = Math.max(1, width);
+  const srcH = Math.max(1, height);
+  const scale = Math.min(1, maxSide / Math.max(srcW, srcH));
+  const dstW = Math.max(1, Math.round(srcW * scale));
+  const dstH = Math.max(1, Math.round(srcH * scale));
+
+  let canvas: OffscreenCanvas | HTMLCanvasElement;
+  let ctx: OffscreenCanvasRenderingContext2D | CanvasRenderingContext2D | null = null;
+  if (typeof (globalThis as any).OffscreenCanvas !== 'undefined') {
+    canvas = new (globalThis as any).OffscreenCanvas(dstW, dstH) as OffscreenCanvas;
+    ctx = canvas.getContext('2d', { alpha: true } as any) as OffscreenCanvasRenderingContext2D | null;
+  } else {
+    const c = document.createElement('canvas');
+    c.width = dstW;
+    c.height = dstH;
+    canvas = c;
+    ctx = c.getContext('2d', { alpha: true } as any) as CanvasRenderingContext2D | null;
+  }
+  if (!ctx) return null;
+
+  if (dstW === srcW && dstH === srcH) {
+    const img = new ImageData(new Uint8ClampedArray(rgba), srcW, srcH);
+    (ctx as any).putImageData(img, 0, 0);
+  } else {
+    const srcCanvas = document.createElement('canvas');
+    srcCanvas.width = srcW;
+    srcCanvas.height = srcH;
+    const sctx = srcCanvas.getContext('2d');
+    if (!sctx) return null;
+    sctx.putImageData(new ImageData(new Uint8ClampedArray(rgba), srcW, srcH), 0, 0);
+    (ctx as any).imageSmoothingEnabled = true;
+    (ctx as any).imageSmoothingQuality = 'high';
+    (ctx as any).drawImage(srcCanvas, 0, 0, dstW, dstH);
+  }
+
+  const toBlob = async (type: string, quality?: number): Promise<Blob | null> => {
+    try {
+      if ('convertToBlob' in canvas) {
+        return await (canvas as OffscreenCanvas).convertToBlob({ type, quality } as any);
+      }
+      return await new Promise<Blob | null>((resolve) => {
+        (canvas as HTMLCanvasElement).toBlob((b) => resolve(b), type, quality);
+      });
+    } catch (_e) {
+      return null;
+    }
+  };
+
+  const avif = await toBlob('image/avif');
+  const webp = avif ? null : await toBlob('image/webp', 0.72);
+  const jpg = avif || webp ? null : await toBlob('image/jpeg', 0.72);
+  const out = avif || webp || jpg;
+  if (!out) return null;
+  const url = URL.createObjectURL(out);
+  return { url, width: dstW, height: dstH };
+}
+
+function scheduleIdle(task: () => void): void {
+  if (typeof window !== 'undefined' && 'requestIdleCallback' in window) {
+    (window as any).requestIdleCallback(task, { timeout: 250 });
+    return;
+  }
+  setTimeout(task, 0);
+}
+
+const latestSavedVectorsSeqByFrame = new Map<string, number>();
+const loggedSavedVectorsSvgByFrame = new Set<string>();
+let nextSavedVectorsSeq = 1;
+
+type CropVectorInput = {
+  id: string;
+  cropX?: number;
+  cropY?: number;
+  cropWidth?: number;
+  cropHeight?: number;
+  width?: number;
+  height?: number;
+};
+
+type CropJobArgs = {
+  frameImage: string;
+  frameWidth: number;
+  frameHeight: number;
+  vectors: CropVectorInput[];
+};
+
+type CropJobState = {
+  inFlight: Promise<
+    | {
+        croppedTextures: Record<string, Uint8Array>;
+        shapeMasks: Record<string, Uint8Array>;
+        edgeMasksMap: Record<string, { top: Uint8Array; bottom: Uint8Array; left: Uint8Array; right: Uint8Array }>;
+      }
+    | null
+  > | null;
+  queued: { seq: number; args: CropJobArgs } | null;
+};
+
+const cropJobByFrame = new Map<string, CropJobState>();
+
+const hashCropArgs = (args: CropJobArgs): number => {
+  let h = 2166136261;
+  const mix = (n: number) => {
+    h ^= n;
+    h = Math.imul(h, 16777619);
+  };
+  mix(args.frameWidth | 0);
+  mix(args.frameHeight | 0);
+  mix(args.frameImage.length | 0);
+  mix(args.vectors.length | 0);
+  for (const v of args.vectors) {
+    const id = String(v.id);
+    for (let i = 0; i < id.length; i++) mix(id.charCodeAt(i));
+    mix((v.cropX ?? 0) | 0);
+    mix((v.cropY ?? 0) | 0);
+    mix((v.cropWidth ?? v.width ?? 0) | 0);
+    mix((v.cropHeight ?? v.height ?? 0) | 0);
+  }
+  return h >>> 0;
+};
+
+const submitCropFromFrameLatest = async (frameKey: string, seq: number, args: CropJobArgs) => {
+  const latestSeq = latestSavedVectorsSeqByFrame.get(frameKey);
+  if (latestSeq !== seq) return null;
+
+  const state = cropJobByFrame.get(frameKey) ?? { inFlight: null, queued: null };
+  cropJobByFrame.set(frameKey, state);
+
+  const start = (startSeq: number, startArgs: CropJobArgs) => {
+    const jobKey = `frameCrop:${frameKey}`;
+    const expectedHash = hashCropArgs(startArgs);
+    state.inFlight = (async () => {
+      const latestBefore = latestSavedVectorsSeqByFrame.get(frameKey);
+      if (latestBefore !== startSeq) return null;
+      const res = await cropComputeClient.cropFromFrame(
+        jobKey,
+        startArgs.frameImage,
+        startArgs.frameWidth,
+        startArgs.frameHeight,
+        startArgs.vectors
+      );
+      const latestAfter = latestSavedVectorsSeqByFrame.get(frameKey);
+      if (latestAfter !== startSeq) return null;
+
+      const currentHash = hashCropArgs(startArgs);
+      if (currentHash !== expectedHash) return null;
+      return res;
+    })();
+
+    void state.inFlight.finally(() => {
+      state.inFlight = null;
+      const queued = state.queued;
+      state.queued = null;
+      if (!queued) return;
+      const latestNow = latestSavedVectorsSeqByFrame.get(frameKey);
+      if (latestNow !== queued.seq) return;
+      start(queued.seq, queued.args);
+    });
+
+    return state.inFlight;
+  };
+
+  if (state.inFlight) {
+    state.queued = { seq, args };
+    return state.inFlight;
+  }
+
+  return start(seq, args);
+};
+
 // 过滤掉被其他图层完全包含的嵌套图层（与 ViewportArea 中的逻辑一致）
 function filterNestedLayers(layers: any[]): any[] {
   if (!layers || layers.length <= 1) return layers;
+
+  const getBounds = (v: any) => {
+    const x = v.x ?? v.bounds?.x ?? 0;
+    const y = v.y ?? v.bounds?.y ?? 0;
+    const width = v.width ?? v.bounds?.width ?? 0;
+    const height = v.height ?? v.bounds?.height ?? 0;
+    return { x, y, width, height, area: width * height };
+  };
 
   const contains = (a: any, b: any, tolerance = 2): boolean => {
     const ax = a.x ?? a.bounds?.x ?? 0;
@@ -47,10 +388,74 @@ function filterNestedLayers(layers: any[]): any[] {
     );
   };
 
-  return layers.filter((v, _i, arr) => {
-    const isContained = arr.some(other => other.id !== v.id && contains(other, v));
-    return !isContained;
-  });
+  const items = layers
+    .map((layer) => {
+      const b = getBounds(layer);
+      return { layer, ...b };
+    })
+    .sort((a, b) => b.area - a.area);
+
+  const cellSize = 256;
+  const grid = new Map<string, any[]>();
+  const keyOf = (cx: number, cy: number) => `${cx}|${cy}`;
+  const addToGrid = (it: any) => {
+    const minX = Math.floor(it.x / cellSize);
+    const minY = Math.floor(it.y / cellSize);
+    const maxX = Math.floor((it.x + it.width) / cellSize);
+    const maxY = Math.floor((it.y + it.height) / cellSize);
+    for (let gx = minX; gx <= maxX; gx++) {
+      for (let gy = minY; gy <= maxY; gy++) {
+        const k = keyOf(gx, gy);
+        const arr = grid.get(k);
+        if (arr) {
+          arr.push(it.layer);
+        } else {
+          grid.set(k, [it.layer]);
+        }
+      }
+    }
+  };
+
+  const queryGrid = (it: any) => {
+    const minX = Math.floor(it.x / cellSize);
+    const minY = Math.floor(it.y / cellSize);
+    const maxX = Math.floor((it.x + it.width) / cellSize);
+    const maxY = Math.floor((it.y + it.height) / cellSize);
+    const out: any[] = [];
+    const seen = new Set<any>();
+    for (let gx = minX; gx <= maxX; gx++) {
+      for (let gy = minY; gy <= maxY; gy++) {
+        const arr = grid.get(keyOf(gx, gy));
+        if (!arr) continue;
+        for (const v of arr) {
+          if (seen.has(v)) continue;
+          seen.add(v);
+          out.push(v);
+        }
+      }
+    }
+    return out;
+  };
+
+  const keptIds = new Set<string>();
+
+  for (const it of items) {
+    const candidates = queryGrid(it);
+    let contained = false;
+    for (const other of candidates) {
+      if (other.id === it.layer.id) continue;
+      if (contains(other, it.layer)) {
+        contained = true;
+        break;
+      }
+    }
+    if (!contained) {
+      if (typeof it.layer?.id === 'string') keptIds.add(it.layer.id);
+      addToGrid(it);
+    }
+  }
+
+  return layers.filter((v) => typeof v?.id === 'string' && keptIds.has(v.id));
 }
 
 // PNG 解码函数 - 将 PNG 字节数据解码为 RGBA 像素数据
@@ -72,12 +477,12 @@ async function decodePNGAndSetPreview(
 
   if (typeof (globalThis as any).OffscreenCanvas !== 'undefined') {
     canvas = new (globalThis as any).OffscreenCanvas(width, height) as OffscreenCanvas;
-    ctx = canvas.getContext('2d');
+    ctx = canvas.getContext('2d', { willReadFrequently: true } as any) as OffscreenCanvasRenderingContext2D | null;
   } else {
     canvas = document.createElement('canvas');
     canvas.width = width;
     canvas.height = height;
-    ctx = canvas.getContext('2d');
+    ctx = canvas.getContext('2d', { willReadFrequently: true } as any) as CanvasRenderingContext2D | null;
   }
 
   if (!ctx || !canvas) {
@@ -121,9 +526,14 @@ export function usePluginMessage(options: UsePluginMessageOptions = {}) {
       const m = message as any;
       if (typeof m.layerId === 'string' && typeof m.requestId === 'number') {
         latestOcclusionRequestIdByLayer.set(m.layerId, m.requestId);
+        occlusionLockUntilByLayer.set(m.layerId, Date.now() + 30_000);
       }
     }
     parent.postMessage({ pluginMessage: message }, '*');
+  }, []);
+
+  const prepareUnifiedExportDirectory = useCallback(async (): Promise<boolean> => {
+    return pickUnifiedExportDirectoryOnce();
   }, []);
 
   // 处理来自 Plugin 的消息
@@ -142,6 +552,7 @@ export function usePluginMessage(options: UsePluginMessageOptions = {}) {
           setLoading,
           addNotification,
           setPreviewData,
+          setPreviewImageUrl,
           clearPreviewData,
           setSelectedCraftLayers,
           setSelectedCraftLayerId,
@@ -167,6 +578,55 @@ export function usePluginMessage(options: UsePluginMessageOptions = {}) {
         // 内置处理逻辑
         const messageType = (message as any).type as string;
         switch (messageType) {
+        case 'result': {
+          try {
+            const data = (message as any).data;
+            if (!data) break;
+            const exportMode = String(data.exportMode || 'export');
+            const baseName = String(data.name || 'export').replace(/[^a-zA-Z0-9]/g, '_');
+
+            if (exportMode === 'unified') {
+              const exportId = String((data as any).exportId || '');
+              if (exportId && processedUnifiedExportIds.has(exportId)) break;
+              if (exportId) processedUnifiedExportIds.add(exportId);
+
+              void (async () => {
+                try {
+                  const saved = await saveUnifiedExportToDirectory(data, baseName);
+                  if (saved) return;
+                } catch (_e) {
+                  // ignore
+                }
+
+                downloadJsonFile(data, `${baseName}.json`);
+                const masks = Array.isArray(data.masks) ? data.masks : [];
+                let i = 0;
+                const seen = new Set<string>();
+                const step = () => {
+                  if (i >= masks.length) return;
+                  const m = masks[i++];
+                  if (m && typeof m.texture === 'string') {
+                    const craft = String(m.craftType || 'mask');
+                    const id = String(m.id || i);
+                    const k = `${craft}|${id}`;
+                    if (!seen.has(k)) {
+                      seen.add(k);
+                      downloadDataUrl(m.texture, `${baseName}_${craft}_${id}.png`);
+                    }
+                  }
+                  setTimeout(step, 80);
+                };
+                setTimeout(step, 0);
+              })();
+            } else {
+              downloadJsonFile(data, `${baseName}.json`);
+            }
+          } catch (_e) {
+            // ignore
+          }
+          break;
+        }
+
         case 'BOOT_LOGS': {
           const payload = (message as any).payload;
           console.log('UI BOOT LOGS:', payload);
@@ -205,6 +665,12 @@ export function usePluginMessage(options: UsePluginMessageOptions = {}) {
           const latest = latestOcclusionRequestIdByLayer.get(layerId);
           if (typeof latest === 'number' && requestId !== latest) break;
 
+          occlusionLockUntilByLayer.set(layerId, Date.now() + 30_000);
+
+          const lastProcessed = processedOcclusionRequestIdByLayer.get(layerId);
+          if (typeof lastProcessed === 'number' && lastProcessed === requestId) break;
+          processedOcclusionRequestIdByLayer.set(layerId, requestId);
+
           try {
             console.log('[UI OcclusionPreview] recv', {
               layerId,
@@ -225,55 +691,56 @@ export function usePluginMessage(options: UsePluginMessageOptions = {}) {
             break;
           }
 
-          const decodePng = (bytes: Uint8Array) => new Promise<{ data: Uint8ClampedArray; width: number; height: number }>((resolve) => {
-            decodePNGAndSetPreview(bytes, (data, width, height) => resolve({ data, width, height }));
-          });
+          // Immediately show a crisp preview (use the original target PNG bytes as-is).
+          // This avoids any later lossy/downsized fallback overwriting the large preview.
+          try {
+            if (msg.isPNG) {
+              const prevUrl = occlusionPreviewBlobUrlByLayer.get(layerId);
+              if (prevUrl) {
+                try {
+                  URL.revokeObjectURL(prevUrl);
+                } catch (_e) {
+                  // ignore
+                }
+              }
+
+              const bytes = new Uint8Array(msg.targetImageData);
+              const blob = new Blob([bytes], { type: 'image/png' });
+              const url = URL.createObjectURL(blob);
+              occlusionPreviewBlobUrlByLayer.set(layerId, url);
+
+              setPreviewImageUrl(layerId, craftType, url, msg.width ?? 0, msg.height ?? 0);
+            }
+          } catch (_e) {
+            // ignore
+          }
 
           void (async () => {
-            const target = await decodePng(new Uint8Array(msg.targetImageData));
-            const occ = await decodePng(new Uint8Array(msg.occluderImageData));
+            try {
+              const key = `occlusion:${layerId}`;
+              const res = await occlusionComputeClient.compositeAlpha(
+                key,
+                new Uint8Array(msg.targetImageData),
+                new Uint8Array(msg.occluderImageData)
+              );
+              if (!res) return;
 
-            if (target.width !== occ.width || target.height !== occ.height) {
-              console.warn('[UI OcclusionPreview] size mismatch; fallback to target only', {
-                layerId,
-                requestId,
-                target: { w: target.width, h: target.height },
-                occ: { w: occ.width, h: occ.height },
-                debug: msg.debug,
+              const latestAfter = latestOcclusionRequestIdByLayer.get(layerId);
+              if (typeof latestAfter === 'number' && requestId !== latestAfter) return;
+
+              // First: set the RGBA-derived heightData
+              setPreviewData(layerId, craftType, toHeightMapRGBA(res.data), res.width, res.height);
+            } catch (_e) {
+              const decodePng = (bytes: Uint8Array) => new Promise<{ data: Uint8ClampedArray; width: number; height: number }>((resolve) => {
+                decodePNGAndSetPreview(bytes, (data, width, height) => resolve({ data, width, height }));
               });
+
+              const target = await decodePng(new Uint8Array(msg.targetImageData));
+              const latestAfterDecode = latestOcclusionRequestIdByLayer.get(layerId);
+              if (typeof latestAfterDecode === 'number' && requestId !== latestAfterDecode) return;
+
               setPreviewData(layerId, craftType, toHeightMapRGBA(target.data), target.width, target.height);
-              return;
             }
-
-            const latestAfterDecode = latestOcclusionRequestIdByLayer.get(layerId);
-            if (typeof latestAfterDecode === 'number' && requestId !== latestAfterDecode) return;
-
-            const out = new Uint8ClampedArray(target.data);
-
-            // Time-slice alpha compositing to avoid long main-thread stalls.
-            const total = out.length;
-            let i = 0;
-            const step = () => {
-              const budgetMs = 8;
-              const t0 = performance.now();
-              for (; i < total; i += 4) {
-                const ta = out[i + 3];
-                const oa = occ.data[i + 3];
-                out[i + 3] = Math.round((ta * (255 - oa)) / 255);
-                if (performance.now() - t0 > budgetMs) break;
-              }
-
-              const latestAfterDecode2 = latestOcclusionRequestIdByLayer.get(layerId);
-              if (typeof latestAfterDecode2 === 'number' && requestId !== latestAfterDecode2) return;
-
-              if (i >= total) {
-                setPreviewData(layerId, craftType, toHeightMapRGBA(out), target.width, target.height);
-                return;
-              }
-              requestAnimationFrame(step);
-            };
-
-            requestAnimationFrame(step);
           })();
           break;
         }
@@ -347,13 +814,47 @@ export function usePluginMessage(options: UsePluginMessageOptions = {}) {
           const craftType = 'NORMAL';
           const layerId = msg.layerId || 'unknown';
 
+          const st = getStoreActions();
+          const lockUntil = occlusionLockUntilByLayer.get(layerId);
+          if (
+            (st.selectedCraftLayerId === layerId && st.largePreviewCraft) ||
+            latestOcclusionRequestIdByLayer.has(layerId) ||
+            (typeof lockUntil === 'number' && Date.now() < lockUntil)
+          ) {
+            break;
+          }
+
+          const seq = nextNormalPreviewSeq++;
+          latestNormalPreviewSeqByLayer.set(layerId, seq);
+
           if (msg.imageData && msg.isPNG) {
-            decodePNGAndSetPreview(
-              new Uint8Array(msg.imageData),
-              (data, width, height) => {
-                setPreviewData(layerId, craftType, toHeightMapRGBA(data), width, height);
+            // Schedule lossy base-image cache for instant display (latest-only)
+            scheduleIdle(() => {
+              const latestSeq = latestNormalPreviewSeqByLayer.get(layerId);
+              if (latestSeq !== seq) return;
+              void encodeLossyPreviewFromPng(new Uint8Array(msg.imageData), msg.width ?? 0, msg.height ?? 0).then((r) => {
+                const latestSeqAfter = latestNormalPreviewSeqByLayer.get(layerId);
+                if (latestSeqAfter !== seq) return;
+                if (!r) return;
+                setPreviewImageUrl(layerId, craftType, r.url, r.width, r.height);
+              });
+            });
+
+            void (async () => {
+              try {
+                const key = `normal:${layerId}`;
+                const res = await occlusionComputeClient.decodePng(key, new Uint8Array(msg.imageData));
+                if (!res) return;
+                setPreviewData(layerId, craftType, toHeightMapRGBA(res.data), res.width, res.height);
+              } catch (_e) {
+                decodePNGAndSetPreview(
+                  new Uint8Array(msg.imageData),
+                  (data, width, height) => {
+                    setPreviewData(layerId, craftType, toHeightMapRGBA(data), width, height);
+                  }
+                );
               }
-            );
+            })();
           } else if (msg.imageData && msg.width && msg.height) {
             const data = new Uint8ClampedArray(msg.imageData);
             setPreviewData(layerId, craftType, toHeightMapRGBA(data), msg.width, msg.height);
@@ -377,6 +878,16 @@ export function usePluginMessage(options: UsePluginMessageOptions = {}) {
         }
 
         case 'clearPreviewData':
+          for (const url of occlusionPreviewBlobUrlByLayer.values()) {
+            try {
+              URL.revokeObjectURL(url);
+            } catch (_e) {
+              // ignore
+            }
+          }
+          occlusionPreviewBlobUrlByLayer.clear();
+          processedOcclusionRequestIdByLayer.clear();
+          occlusionLockUntilByLayer.clear();
           clearPreviewData();
           break;
 
@@ -407,36 +918,135 @@ export function usePluginMessage(options: UsePluginMessageOptions = {}) {
               visible: true,
               locked: false,
               opacity: 1,
+              svgPath: v.svgPath ?? undefined,
+              rasterCache: v.rasterCache ?? undefined,
+              originalBounds: v.originalBounds ?? undefined,
+              craftType: 'CLIPMASK' as const,
             }));
-            // 设置到 clipmaskVectors，不是 markedLayers
+            // 
             setClipMaskVectors(layers);
           }
           break;
         }
 
         case 'savedVectors': {
-          // savedVectors = clipmask 刀版图数据，用于视口预览折叠关系
+          // savedVectors = clipmask 
           const { vectors, frameId, frameImage, frameWidth, frameHeight } = message as any;
 
-          // 设置 sourceFrameId
+          const frameKey = String(frameId || 'unknown');
+          const savedSeq = nextSavedVectorsSeq++;
+          latestSavedVectorsSeqByFrame.set(frameKey, savedSeq);
+
+          if (!loggedSavedVectorsSvgByFrame.has(frameKey) && Array.isArray(vectors) && vectors.length > 0) {
+            loggedSavedVectorsSvgByFrame.add(frameKey);
+            const v0 = vectors[0];
+            const svgLen = typeof v0?.svgPath === 'string' ? v0.svgPath.length : 0;
+            console.log('[savedVectors svgPath]', { frameId: frameKey, id: v0?.id, name: v0?.name, svgLen });
+          }
+
+          // 
           if (frameId) {
             setSourceFrameId(frameId);
           }
+
           if (vectors && Array.isArray(vectors)) {
-            // 异步裁剪贴图并生成形状遮罩
+            // 
             const cropTexturesFromFrame = async () => {
-              // 如果有 frameImage，从中裁剪每个面片的贴图
+              const latestSeqAtStart = latestSavedVectorsSeqByFrame.get(frameKey);
+              if (latestSeqAtStart !== savedSeq) {
+                return { croppedTextures: {}, shapeMasks: {}, edgeMasksMap: {} };
+              }
+
+              // 
               const croppedTextures: Record<string, string> = {};
-              // 新增：面板外轮廓遮罩（用于外表面透明裁剪）
+              // 
               const shapeMasks: Record<string, string> = {};
-              // 新增：边缘遮罩（用于侧边透明裁剪）
+              // 
               const edgeMasksMap: Record<string, { top: string; bottom: string; left: string; right: string }> = {};
 
+              const pngBytesToDataUrl = (bytes: Uint8Array) =>
+                new Promise<string>((resolve) => {
+                  const copy = new Uint8Array(bytes.byteLength);
+                  copy.set(bytes);
+                  const b = new Blob([copy], { type: 'image/png' });
+                  const r = new FileReader();
+                  r.onload = () => resolve(String(r.result || ''));
+                  r.onerror = () => resolve('');
+                  r.readAsDataURL(b);
+                });
+
+              const runWithIdle = (fn: () => void) => {
+                if ('requestIdleCallback' in window) {
+                  (window as any).requestIdleCallback(fn, { timeout: 300 });
+                } else {
+                  setTimeout(fn, 0);
+                }
+              };
+
+              const convertPngMapsToDataUrls = async (
+                maps: {
+                  croppedTextures: Record<string, Uint8Array>;
+                  shapeMasks: Record<string, Uint8Array>;
+                  edgeMasksMap: Record<string, { top: Uint8Array; bottom: Uint8Array; left: Uint8Array; right: Uint8Array }>;
+                }
+              ) => {
+                const ids = Object.keys(maps.croppedTextures);
+                let idx = 0;
+                return new Promise<void>((resolve) => {
+                  const step = async () => {
+                    const budgetMs = 8;
+                    const t0 = performance.now();
+                    while (idx < ids.length && performance.now() - t0 < budgetMs) {
+                      const id = ids[idx++];
+                      const tex = maps.croppedTextures[id];
+                      const sm = maps.shapeMasks[id];
+                      const em = maps.edgeMasksMap[id];
+                      if (tex) croppedTextures[id] = await pngBytesToDataUrl(tex);
+                      if (sm) shapeMasks[id] = await pngBytesToDataUrl(sm);
+                      if (em) {
+                        edgeMasksMap[id] = {
+                          top: await pngBytesToDataUrl(em.top),
+                          bottom: await pngBytesToDataUrl(em.bottom),
+                          left: await pngBytesToDataUrl(em.left),
+                          right: await pngBytesToDataUrl(em.right),
+                        };
+                      }
+                    }
+                    if (idx >= ids.length) {
+                      resolve();
+                      return;
+                    }
+                    runWithIdle(() => {
+                      void step();
+                    });
+                  };
+                  runWithIdle(() => {
+                    void step();
+                  });
+                });
+              };
+
               if (frameImage && frameWidth && frameHeight) {
-                console.log(`🖼️ 开始裁剪贴图: ${vectors.length} 个面片, Frame: ${frameWidth}x${frameHeight}`);
+                const latestSeqBeforeWorker = latestSavedVectorsSeqByFrame.get(frameKey);
+                if (latestSeqBeforeWorker !== savedSeq) {
+                  return { croppedTextures: {}, shapeMasks: {}, edgeMasksMap: {} };
+                }
+                console.log(` 开始裁剪贴图: ${vectors.length} 个面片, Frame: ${frameWidth}x${frameHeight}`);
 
                 try {
-                  // 加载 Frame 图片
+                  const workerRes = await submitCropFromFrameLatest(String(frameId || 'unknown'), savedSeq, {
+                    frameImage,
+                    frameWidth,
+                    frameHeight,
+                    vectors,
+                  });
+                  if (workerRes) {
+                    await convertPngMapsToDataUrls(workerRes);
+                    console.log(` 贴图裁剪完成: ${Object.keys(croppedTextures).length} 个, shapeMask: ${Object.keys(shapeMasks).length} 个`);
+                    return { croppedTextures, shapeMasks, edgeMasksMap };
+                  }
+
+                  // 
                   const img = new Image();
                   await new Promise<void>((resolve, reject) => {
                     img.onload = () => resolve();
@@ -444,8 +1054,12 @@ export function usePluginMessage(options: UsePluginMessageOptions = {}) {
                     img.src = frameImage;
                   });
 
-                  // 为每个 vector 裁剪贴图
+                  // 
                   for (const v of vectors) {
+                    const latestSeqInFallback = latestSavedVectorsSeqByFrame.get(frameKey);
+                    if (latestSeqInFallback !== savedSeq) {
+                      return { croppedTextures: {}, shapeMasks: {}, edgeMasksMap: {} };
+                    }
                     const cropX = v.cropX ?? 0;
                     const cropY = v.cropY ?? 0;
                     const cropW = v.cropWidth ?? v.width ?? 100;
@@ -453,11 +1067,11 @@ export function usePluginMessage(options: UsePluginMessageOptions = {}) {
 
                     if (cropW <= 0 || cropH <= 0) continue;
 
-                    // 创建 canvas 裁剪贴图
+                    // 
                     const canvas = document.createElement('canvas');
                     canvas.width = cropW;
                     canvas.height = cropH;
-                    const ctx = canvas.getContext('2d');
+                    const ctx = canvas.getContext('2d', { willReadFrequently: true } as any) as CanvasRenderingContext2D | null;
                     if (!ctx) continue;
 
                     // 裁剪指定区域
@@ -615,103 +1229,86 @@ export function usePluginMessage(options: UsePluginMessageOptions = {}) {
               id: v.id,
               name: v.name || 'Unnamed',
               type: 'VECTOR' as const,
-              x: v.x ?? 0,
-              y: v.y ?? 0,
-              width: v.width ?? 0,
-              height: v.height ?? 0,
-              bounds: {
-                x: v.x ?? 0,
-                y: v.y ?? 0,
-                width: v.width ?? 0,
-                height: v.height ?? 0
-              },
+              bounds: { x: v.x ?? 0, y: v.y ?? 0, width: v.width ?? 0, height: v.height ?? 0 },
               visible: true,
               locked: false,
               opacity: 1,
-              svgPreview: v.svgPreview,
-              pngPreview: v.pngPreview,
+              pngPreview: undefined,
+              svgPath: v.svgPath ?? undefined,
+              rasterCache: v.rasterCache ?? undefined,
+              originalBounds: v.originalBounds ?? undefined,
               craftType: 'CLIPMASK' as const,
             }));
 
             // 先设置基础数据，让 UI 可以立即显示
             setClipMaskVectors(baseLayers);
 
-            // 异步裁剪贴图并更新
-            cropTexturesFromFrame().then(({ croppedTextures, shapeMasks, edgeMasksMap }) => {
-              if (Object.keys(croppedTextures).length > 0) {
-                // 更新 layers 添加裁剪后的贴图和形状遮罩
-                const layersWithTextures = baseLayers.map((layer: any) => ({
-                  ...layer,
-                  pngPreview: croppedTextures[layer.id] || layer.pngPreview,
-                  shapeMask: shapeMasks[layer.id],  // 面板外轮廓遮罩
-                  edgeMasks: edgeMasksMap[layer.id],  // 边缘遮罩（用于侧边透明裁剪）
-                }));
-                setClipMaskVectors(layersWithTextures);
-                console.log('🎨 贴图、shapeMask、edgeMasks 已更新到 clipMaskVectors');
-              }
-            });
+            // 异步裁剪贴图并更新（只有当 plugin 提供 frameImage 时才进行）
+            if (frameImage && frameWidth && frameHeight) {
+              cropTexturesFromFrame().then(({ croppedTextures, shapeMasks, edgeMasksMap }) => {
+                const latestSeq = latestSavedVectorsSeqByFrame.get(frameKey);
+                if (latestSeq !== savedSeq) return;
 
-            // 只在 foldSequence 为空时才初始化
-            const currentFoldSequence = useAppStore.getState().foldSequence;
-            if (currentFoldSequence.length === 0) {
-              const filteredLayers = filterNestedLayers(baseLayers);
-              const vectorsForSort: Vector[] = filteredLayers.map((l: any) => ({
-                id: l.id,
-                name: l.name || 'Unnamed',
-                x: l.x ?? l.bounds?.x ?? 0,
-                y: l.y ?? l.bounds?.y ?? 0,
-                width: l.width ?? l.bounds?.width ?? 100,
-                height: l.height ?? l.bounds?.height ?? 50,
-              }));
-              const result = autoInferFoldSequence(vectorsForSort);
-              initFoldSequence(result.sequence);
-              if (result.rootPanelId) {
-                setRootPanelId(result.rootPanelId);
-              }
-              setPanelNameMap(result.nameMap);
-              setDrivenMap(result.drivenMap);
-              console.log('✅ 自动排序完成:', result);
+                if (Object.keys(croppedTextures).length > 0) {
+                  const layersWithTextures = baseLayers.map((layer: any) => ({
+                    ...layer,
+                    pngPreview: croppedTextures[layer.id],
+                    shapeMask: shapeMasks[layer.id],
+                    edgeMasks: edgeMasksMap[layer.id],
+                  }));
+                  setClipMaskVectors(layersWithTextures);
+                  console.log('🎨 贴图、shapeMask、edgeMasks 已更新到 clipMaskVectors');
+                }
+              });
             }
-          }
-          break;
-        }
 
-        case 'markedLayers': {
-          const { layers } = message as any;
-          if (layers && Array.isArray(layers)) {
-            // 转换为 MarkedLayer 格式，添加缺失字段
-            const normalizedLayers = layers.map((layer: any, index: number) => ({
-              id: layer.id,
-              name: layer.name || 'Unnamed',
-              type: layer.type || 'VECTOR',
-              bounds: layer.bounds || {
-                x: (index % 4) * 120,
-                y: Math.floor(index / 4) * 80,
-                width: 100,
-                height: 60
-              },
-              visible: true,
-              locked: false,
-              opacity: 1,
-              craftType: layer.craftType,
-              crafts: layer.crafts,  // 添加 crafts 字段
-              grayValue: layer.grayValue,  // 添加 grayValue 字段
-              craftParams: layer.craftParams,
-              svgPreview: layer.svgPreview,
-              pngPreview: layer.pngPreview,
+            const vectorsForSort = baseLayers.map((l: any) => ({
+              id: l.id,
+              name: l.name || 'Unnamed',
+              x: l.x ?? l.bounds?.x ?? 0,
+              y: l.y ?? l.bounds?.y ?? 0,
+              width: l.width ?? l.bounds?.width ?? 100,
+              height: l.height ?? l.bounds?.height ?? 50,
             }));
-            setMarkedLayers(normalizedLayers);
-          }
-          break;
-        }
 
-        // ===== 根节点设置消息 =====
-        case 'ROOT_PANEL_SET': {
-          const { panelId, panelName } = (message as any).payload || {};
-          if (panelId) {
-            const { setRootPanelId } = getStoreActions();
-            setRootPanelId(panelId);
-            console.log(`✅ 根节点已设置: ${panelName} (${panelId})`);
+            const vectorsForSortFiltered = filterNestedLayers(vectorsForSort);
+
+            if (vectorsForSortFiltered.length === 0) {
+              break;
+            }
+
+            void (async () => {
+              try {
+                const workerRes = await foldInferComputeClient.infer(`foldInfer:${frameKey}`, vectorsForSortFiltered);
+                const latestSeq = latestSavedVectorsSeqByFrame.get(frameKey);
+                if (latestSeq !== savedSeq) return;
+                const latestFoldSeq = useAppStore.getState().foldSequence;
+                if (latestFoldSeq.length !== 0) return;
+
+                const result = workerRes ?? autoInferFoldSequence(vectorsForSortFiltered);
+                initFoldSequence(result.sequence);
+                if (result.rootPanelId) {
+                  setRootPanelId(result.rootPanelId);
+                }
+                setPanelNameMap(result.nameMap);
+                setDrivenMap(result.drivenMap);
+                console.log('✅ 自动排序完成:', result);
+              } catch (_e) {
+                const latestSeq = latestSavedVectorsSeqByFrame.get(frameKey);
+                if (latestSeq !== savedSeq) return;
+                const latestFoldSeq = useAppStore.getState().foldSequence;
+                if (latestFoldSeq.length !== 0) return;
+
+                const result = autoInferFoldSequence(vectorsForSortFiltered);
+                initFoldSequence(result.sequence);
+                if (result.rootPanelId) {
+                  setRootPanelId(result.rootPanelId);
+                }
+                setPanelNameMap(result.nameMap);
+                setDrivenMap(result.drivenMap);
+                console.log('✅ 自动排序完成:', result);
+              }
+            })();
           }
           break;
         }
@@ -739,5 +1336,5 @@ export function usePluginMessage(options: UsePluginMessageOptions = {}) {
     return () => window.removeEventListener('message', handleMessage);
   }, [sendMessage]);
 
-  return { sendMessage };
+  return { sendMessage, prepareUnifiedExportDirectory };
 }

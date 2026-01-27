@@ -10,6 +10,7 @@ import type {
   StitchedGeometryResult,
   AtlasRegion,
 } from './types';
+import { createSVGPanelGeometry } from './SVGShapeGeometry';
 
 /** 默认配置 */
 const DEFAULT_STITCH_CONFIG: StitchConfig = {
@@ -131,9 +132,63 @@ export class GeometryStitcher {
   }
 
   /**
-   * 生成面片几何体 (平面网格)
+   * 生成面片几何体 (支持 SVG 形状)
    */
   private generatePanelGeometry(
+    node: PanelNode,
+    region: AtlasRegion,
+    boneIndex: number
+  ): void {
+    // 🆕 优先使用 SVG 路径（如果存在）
+    if (node.svgPath) {
+      this.generateSVGPanelGeometry(node, region, boneIndex);
+      return;
+    }
+
+    // 回退到矩形几何体
+    this.generateRectPanelGeometry(node, region, boneIndex);
+  }
+
+  /**
+   * 生成 SVG 形状面片几何体
+   */
+  private generateSVGPanelGeometry(
+    node: PanelNode,
+    region: AtlasRegion,
+    boneIndex: number
+  ): void {
+    const { bounds, svgPath } = node;
+    const { thickness } = this.config;
+
+    if (!svgPath) return;
+
+    // 使用 SVG 工具创建几何体
+    const { frontGeometry, backGeometry } = createSVGPanelGeometry(
+      svgPath,
+      bounds,
+      region.uv,
+      thickness
+    );
+
+    if (!frontGeometry) {
+      console.warn(`Failed to create SVG geometry for panel ${node.id}, falling back to rect`);
+      this.generateRectPanelGeometry(node, region, boneIndex);
+      return;
+    }
+
+    // 添加正面几何体
+    this.addGeometryToBuffers(frontGeometry, boneIndex);
+
+    // 添加背面几何体（如果需要双面）
+    if (this.config.doubleSided && backGeometry) {
+      this.addGeometryToBuffers(backGeometry, boneIndex);
+    }
+  }
+
+  /**
+   * 生成矩形面片几何体（原始实现）
+   */
+  private generateRectPanelGeometry(
     node: PanelNode,
     region: AtlasRegion,
     boneIndex: number
@@ -205,7 +260,57 @@ export class GeometryStitcher {
   }
 
   /**
-   * 生成关节带几何体 (圆角过渡)
+   * 将 BufferGeometry 添加到缓冲区
+   */
+  private addGeometryToBuffers(
+    geometry: THREE.BufferGeometry,
+    boneIndex: number
+  ): void {
+    const positions = geometry.getAttribute('position');
+    const uvs = geometry.getAttribute('uv');
+    const normals = geometry.getAttribute('normal');
+    const indices = geometry.getIndex();
+
+    if (!positions || !uvs || !normals || !indices) {
+      console.warn('Geometry missing required attributes');
+      return;
+    }
+
+    const vertexOffset = this.vertexCount;
+
+    // 添加顶点数据
+    for (let i = 0; i < positions.count; i++) {
+      const pos: [number, number, number] = [
+        positions.getX(i),
+        positions.getY(i),
+        positions.getZ(i),
+      ];
+      const uv: [number, number] = [
+        uvs.getX(i),
+        uvs.getY(i),
+      ];
+      const normal: [number, number, number] = [
+        normals.getX(i),
+        normals.getY(i),
+        normals.getZ(i),
+      ];
+
+      this.addVertex(pos, uv, normal, boneIndex, 1.0);
+    }
+
+    // 添加索引
+    const indexArray = indices.array;
+    for (let i = 0; i < indexArray.length; i += 3) {
+      this.addTriangle(
+        vertexOffset + indexArray[i],
+        vertexOffset + indexArray[i + 1],
+        vertexOffset + indexArray[i + 2]
+      );
+    }
+  }
+
+  /**
+   * 生成关节带几何体 (支持 gapSize 参数)
    */
   private generateJointGeometry(
     childNode: PanelNode,
@@ -219,7 +324,9 @@ export class GeometryStitcher {
     if (!joint) return;
 
     const { jointSegments } = this.config;
-    const jointWidth = joint.width || this.config.cornerRadius;
+
+    // 🆕 优先使用 gapSize，回退到 joint.width 或 cornerRadius
+    const jointWidth = joint.gapSize ?? joint.width ?? this.config.cornerRadius;
     const jointLength = joint.length;
     const jx = joint.position.x;
     const jy = joint.position.y;

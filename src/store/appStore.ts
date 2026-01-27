@@ -72,6 +72,11 @@ interface AppState {
     width: number;
     height: number;
   }>;
+  previewImageUrlMap: Record<string, { // key: `${layerId}_${craftType}`
+    url: string | null;
+    width: number;
+    height: number;
+  }>;
   previewDataVersion: number;  // 版本号，用于强制触发重新渲染
   selectedCraftLayers: MarkedLayer[];
   largePreviewCraft: CraftType | null;  // 大图预览的工艺类型
@@ -156,6 +161,7 @@ interface AppActions {
 
   // ===== 预览数据操作 =====
   setPreviewData: (layerId: string, craftType: CraftType, data: Uint8ClampedArray | null, width: number, height: number) => void;
+  setPreviewImageUrl: (layerId: string, craftType: CraftType, url: string | null, width: number, height: number) => void;
   clearPreviewData: (layerId?: string, craftType?: CraftType) => void;
   setSelectedCraftLayers: (layers: MarkedLayer[]) => void;
   setLargePreviewCraft: (craft: CraftType | null) => void;
@@ -241,6 +247,8 @@ const defaultCraftParams: CraftParams = {
 /** 创建空的预览数据映射 */
 const createEmptyPreviewDataMap = (): Record<string, { data: Uint8ClampedArray | null; width: number; height: number }> => ({});
 
+const createEmptyPreviewImageUrlMap = (): Record<string, { url: string | null; width: number; height: number }> => ({});
+
 const defaultCanvasTransform: CanvasTransform = {
   pan: { x: 0, y: 0 },
   zoom: 1,
@@ -294,8 +302,9 @@ const initialState: AppState = {
   craftParams: defaultCraftParams,
   previewEnabled: true,
 
-  // Preview Data
+  // Preview
   previewDataMap: createEmptyPreviewDataMap(),
+  previewImageUrlMap: createEmptyPreviewImageUrlMap(),
   previewDataVersion: 0,
   selectedCraftLayers: [],
   largePreviewCraft: null,
@@ -472,13 +481,50 @@ export const useAppStore = create<AppState & AppActions>()(
         };
       });
     },
+
+    setPreviewImageUrl: (layerId, craftType, url, width, height) => {
+      set((state) => {
+        const key = `${layerId}_${craftType}`;
+        const current = state.previewImageUrlMap[key];
+        const prevUrl = current?.url;
+        if (prevUrl && prevUrl !== url && prevUrl.startsWith('blob:')) {
+          try {
+            URL.revokeObjectURL(prevUrl);
+          } catch (_e) {
+            // ignore
+          }
+        }
+
+        if (current && current.url === url && current.width === width && current.height === height) {
+          return state;
+        }
+
+        return {
+          previewImageUrlMap: {
+            ...state.previewImageUrlMap,
+            [key]: { url, width, height },
+          },
+        };
+      });
+    },
+
     clearPreviewData: (layerId, craftType) => set((state) => {
       if (layerId && craftType) {
         // 清除指定图层+工艺的预览数据
         const key = `${layerId}_${craftType}`;
         const { [key]: _, ...rest } = state.previewDataMap;
+        const currentUrl = state.previewImageUrlMap[key]?.url;
+        if (currentUrl && currentUrl.startsWith('blob:')) {
+          try {
+            URL.revokeObjectURL(currentUrl);
+          } catch (_e) {
+            // ignore
+          }
+        }
+        const { [key]: __, ...restUrl } = state.previewImageUrlMap;
         return {
           previewDataMap: rest,
+          previewImageUrlMap: restUrl,
           previewDataVersion: state.previewDataVersion + 1,
         };
       } else if (layerId) {
@@ -486,14 +532,40 @@ export const useAppStore = create<AppState & AppActions>()(
         const newMap = Object.fromEntries(
           Object.entries(state.previewDataMap).filter(([k]) => !k.startsWith(`${layerId}_`))
         );
+        for (const [k, v] of Object.entries(state.previewImageUrlMap)) {
+          if (!k.startsWith(`${layerId}_`)) continue;
+          const u = v?.url;
+          if (u && u.startsWith('blob:')) {
+            try {
+              URL.revokeObjectURL(u);
+            } catch (_e) {
+              // ignore
+            }
+          }
+        }
+        const newUrlMap = Object.fromEntries(
+          Object.entries(state.previewImageUrlMap).filter(([k]) => !k.startsWith(`${layerId}_`))
+        );
         return {
           previewDataMap: newMap,
+          previewImageUrlMap: newUrlMap,
           previewDataVersion: state.previewDataVersion + 1,
         };
       } else {
         // 清除所有预览数据
+        for (const v of Object.values(state.previewImageUrlMap)) {
+          const u = v?.url;
+          if (u && u.startsWith('blob:')) {
+            try {
+              URL.revokeObjectURL(u);
+            } catch (_e) {
+              // ignore
+            }
+          }
+        }
         return {
           previewDataMap: createEmptyPreviewDataMap(),
+          previewImageUrlMap: createEmptyPreviewImageUrlMap(),
           previewDataVersion: state.previewDataVersion + 1,
         };
       }
@@ -573,6 +645,24 @@ export const usePreviewData = (layerId?: string, craftType?: CraftType) => {
         heightData: previewData?.data || null,
         width: previewData?.width || 0,
         height: previewData?.height || 0,
+        craftType: type,
+        layerId: id,
+      };
+    })
+  );
+};
+
+export const usePreviewImageUrl = (layerId?: string, craftType?: CraftType) => {
+  return useAppStore(
+    useShallow((state) => {
+      const type = craftType || state.activeCraftType;
+      const id = layerId || state.selectedCraftLayerId || '';
+      const key = `${id}_${type}`;
+      const v = state.previewImageUrlMap[key];
+      return {
+        url: v?.url || null,
+        width: v?.width || 0,
+        height: v?.height || 0,
         craftType: type,
         layerId: id,
       };

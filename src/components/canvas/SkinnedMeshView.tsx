@@ -3,7 +3,7 @@
  * 使用 SkinnedFoldingMesh 实现平滑圆角折叠
  */
 
-import React, { useMemo } from 'react';
+import React, { useMemo, useEffect } from 'react';
 import { SkinnedFoldingMesh, type FoldTimingConfig } from '@genki/folding-3d';
 import { buildTopologyTree, type BuildTreeInput } from './RecursiveFoldingBox';
 import { convertToSkinnedPanelNode } from './SkinnedMeshAdapter';
@@ -70,6 +70,7 @@ interface SkinnedMeshViewProps {
   cornerRadius?: number;
   showSkeleton?: boolean;
   showWireframe?: boolean;
+  yFlipBaseline?: number | null;
 }
 
 export const SkinnedMeshView: React.FC<SkinnedMeshViewProps> = ({
@@ -82,17 +83,40 @@ export const SkinnedMeshView: React.FC<SkinnedMeshViewProps> = ({
   cornerRadius = 2,
   showSkeleton = false,
   showWireframe = false,
+  yFlipBaseline = null,
 }) => {
+  const vectorsFor3D = useMemo(() => {
+    if (yFlipBaseline === null || yFlipBaseline === undefined) {
+      return vectors;
+    }
+    return vectors.map((v) => ({
+      ...v,
+      y: yFlipBaseline - (v.y + v.height),
+    }));
+  }, [vectors, yFlipBaseline]);
+
   // 构建拓扑树并转换为 SkinnedMesh 格式
   const panelTree = useMemo(() => {
-    const tree = buildTopologyTree({ vectors, rootId, drivenMap, nameMap });
+    const tree = buildTopologyTree({ vectors: vectorsFor3D, rootId, drivenMap, nameMap, yFlipBaseline: null });
     if (!tree) return null;
 
     return convertToSkinnedPanelNode(tree, null, {
       jointWidth: cornerRadius,
       maxFoldAngle: Math.PI / 2,
     });
-  }, [vectors, rootId, drivenMap, nameMap, cornerRadius]);
+  }, [vectorsFor3D, rootId, drivenMap, nameMap, cornerRadius]);
+
+  // 🔍 调试：打印 SkinnedMeshView 渲染状态
+  useEffect(() => {
+    console.log('🦴 SkinnedMeshView - 渲染状态:', {
+      hasPanelTree: !!panelTree,
+      vectorsCount: vectorsFor3D.length,
+      rootId,
+      foldProgress,
+      thickness,
+      cornerRadius,
+    });
+  }, [panelTree, vectorsFor3D.length, rootId, foldProgress, thickness, cornerRadius]);
 
   // 根据 drivenMap 生成折叠时序
   const foldTimings = useMemo(() => {
@@ -101,14 +125,14 @@ export const SkinnedMeshView: React.FC<SkinnedMeshViewProps> = ({
 
   // 计算缩放和居中
   const transform = useMemo(() => {
-    if (vectors.length === 0) {
+    if (vectorsFor3D.length === 0) {
       return { scale: 1, offsetX: 0, offsetY: 0 };
     }
 
     let minX = Infinity, minY = Infinity;
     let maxX = -Infinity, maxY = -Infinity;
 
-    vectors.forEach(v => {
+    vectorsFor3D.forEach(v => {
       minX = Math.min(minX, v.x);
       minY = Math.min(minY, v.y);
       maxX = Math.max(maxX, v.x + v.width);
@@ -125,7 +149,7 @@ export const SkinnedMeshView: React.FC<SkinnedMeshViewProps> = ({
       offsetX: (minX + maxX) / 2,
       offsetY: (minY + maxY) / 2,
     };
-  }, [vectors]);
+  }, [vectorsFor3D]);
 
   if (!panelTree) return null;
 

@@ -3,16 +3,16 @@
  * 使用 monorepo token system 确保设计一致性
  */
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { ControlPanel, ViewportArea } from './components';
 import { CyclesRenderPreview } from './components/canvas/CyclesRenderPreview';
 import { usePluginMessage } from './hooks';
 import { useAppStore } from './store';
 import { TokenInjector } from '@genki/shared-ui';
-import { SEMANTIC_TOKENS, BASE_TOKENS } from '@genki/shared-theme';
+import { SEMANTIC_TOKENS } from '@genki/shared-theme';
 
-// 核心布局样式 - 使用覆盖布局实现毛玻璃效果
-const styles = {
+// 🚀 性能优化：核心布局样式提取到组件外部，避免每次渲染重新创建
+const STATIC_STYLES = {
   appContainer: {
     position: 'relative' as const,
     height: '100vh',
@@ -24,7 +24,7 @@ const styles = {
     position: 'absolute' as const,
     inset: 0,
   },
-  controlPanel: {
+  controlPanelBase: {
     position: 'absolute' as const,
     top: 0,
     right: 0,
@@ -38,7 +38,6 @@ const styles = {
     boxShadow: '-4px 0 24px rgba(0, 0, 0, 0.4)',
     overflow: 'visible',
     zIndex: 20,
-    transition: `width ${SEMANTIC_TOKENS.motion.duration.normal} ${SEMANTIC_TOKENS.motion.easing.smooth}`,
   },
   panelToggle: {
     position: 'absolute' as const,
@@ -70,6 +69,15 @@ const styles = {
     flexDirection: 'column' as const,
     gap: SEMANTIC_TOKENS.spacing.gap.sm,
   },
+  loadingContainer: {
+    width: '100%',
+    height: '100%',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    color: 'rgba(161, 161, 170, 0.95)',
+    fontSize: '12px',
+  },
 };
 
 export default function App() {
@@ -77,6 +85,7 @@ export default function App() {
   const notifications = useAppStore((s) => s.notifications);
   const removeNotification = useAppStore((s) => s.removeNotification);
   const sidebarWidth = useAppStore((s) => s.sidebarWidth);
+  const cyclesPreviewOpen = useAppStore((s) => s.cyclesPreviewOpen);
   const [panelCollapsed, setPanelCollapsed] = useState(false);
   const [uiMounted, setUiMounted] = useState(false);
 
@@ -100,16 +109,23 @@ export default function App() {
     sendMessage({ type: 'INIT_APP' });
   }, [sendMessage, uiMounted]);
 
+  // 🚀 性能优化：使用 useMemo 缓存动态样式
+  const controlPanelStyle = useMemo(() => ({
+    ...STATIC_STYLES.controlPanelBase,
+    width: panelCollapsed ? '0px' : `${sidebarWidth}px`,
+    transition: `width ${SEMANTIC_TOKENS.motion.duration.normal} ${SEMANTIC_TOKENS.motion.easing.smooth}`,
+  }), [panelCollapsed, sidebarWidth]);
+
   return (
     <>
       {/* 注入 Design Tokens 为 CSS 变量 */}
       <TokenInjector />
 
       {/* 主布局：Viewport 全屏 + Control Panel 覆盖在右侧 */}
-      <div style={styles.appContainer}>
+      <div style={STATIC_STYLES.appContainer}>
         {/* Viewport - 全屏显示 */}
-        <div style={styles.viewport}>
-          {uiMounted ? (
+        <div style={STATIC_STYLES.viewport}>
+          {uiMounted && !cyclesPreviewOpen ? (
             <ViewportArea />
           ) : (
             <div style={{
@@ -127,14 +143,11 @@ export default function App() {
         </div>
 
         {/* Control Panel - 覆盖在右侧 (毛玻璃效果) */}
-        <div data-control-panel="true" style={{
-          ...styles.controlPanel,
-          width: panelCollapsed ? '0px' : `${sidebarWidth}px`,
-        }}>
+        <div data-control-panel="true" style={controlPanelStyle}>
           {/* 折叠按钮 - 精致隐形设计 */}
           <button
             type="button"
-            style={styles.panelToggle}
+            style={STATIC_STYLES.panelToggle}
             onClick={() => setPanelCollapsed(!panelCollapsed)}
             title={panelCollapsed ? '展开面板' : '收起面板'}
             onMouseEnter={(e) => {
@@ -176,7 +189,7 @@ export default function App() {
 
       {/* 通知 Toast */}
       {notifications.length > 0 && (
-        <div style={styles.notificationContainer}>
+        <div style={STATIC_STYLES.notificationContainer}>
           {notifications.map((notification) => (
             <div
               key={notification.id}
@@ -189,15 +202,14 @@ export default function App() {
                 background: notification.variant === 'success'
                   ? 'rgba(34, 197, 94, 0.15)'
                   : notification.variant === 'error'
-                  ? 'rgba(239, 68, 68, 0.15)'
-                  : 'rgba(245, 158, 11, 0.15)',
-                border: `1px solid ${
-                  notification.variant === 'success'
-                    ? 'rgba(34, 197, 94, 0.4)'
-                    : notification.variant === 'error'
+                    ? 'rgba(239, 68, 68, 0.15)'
+                    : 'rgba(245, 158, 11, 0.15)',
+                border: `1px solid ${notification.variant === 'success'
+                  ? 'rgba(34, 197, 94, 0.4)'
+                  : notification.variant === 'error'
                     ? 'rgba(239, 68, 68, 0.4)'
                     : 'rgba(245, 158, 11, 0.4)'
-                }`,
+                  }`,
                 backdropFilter: 'blur(10px)',
               }}
             >

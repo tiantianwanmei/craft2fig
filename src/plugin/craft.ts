@@ -27,6 +27,26 @@ import {
 } from './messages';
 import { FACE_NAMES } from './constants';
 
+let latestPreviewToken = 0;
+let previewTimer: ReturnType<typeof setTimeout> | null = null;
+
+function scheduleNormalPreview(node: SceneNode, craftType: CraftTypeZh): void {
+  latestPreviewToken++;
+  const token = latestPreviewToken;
+
+  if (previewTimer) {
+    clearTimeout(previewTimer);
+    previewTimer = null;
+  }
+
+  previewTimer = setTimeout(() => {
+    if (token !== latestPreviewToken) return;
+    void sendNormalPreviewData(node, craftType).catch((e) => {
+      console.warn('⚠️ Failed to auto-generate preview:', e);
+    });
+  }, 0);
+}
+
 // ========== 标记状态 ==========
 
 /** 标记操作进行中标志 */
@@ -129,7 +149,7 @@ export async function markCraftWithGray(craftType: CraftTypeZh, grayValue: numbe
   sendCraftLayerSelected(currentSelectionCrafts);
 
   // 发送所有已标记节点的工艺数据
-  sendMarkedLayersFromCache();
+  sendMarkedLayersFromCache({ skipRefresh: true });
 
   // 延迟重置标志
   setTimeout(() => {
@@ -137,12 +157,8 @@ export async function markCraftWithGray(craftType: CraftTypeZh, grayValue: numbe
   }, 200);
 
   // 自动生成预览数据
-  try {
-    const firstNode = selection[0];
-    await sendNormalPreviewData(firstNode, craftType);
-  } catch (e) {
-    console.warn('⚠️ Failed to auto-generate preview:', e);
-  }
+  const firstNode = selection[0];
+  if (firstNode) scheduleNormalPreview(firstNode, craftType);
 }
 
 /** 通过 ID 标记工艺并设置灰度值 */
@@ -175,14 +191,10 @@ export async function markCraftWithGrayById(
   }
 
   sendSuccess(`已标记 1 个图层为「${craftType}」`);
-  await sendMarkedLayersFromCache();
+  sendMarkedLayersFromCache({ skipRefresh: true });
 
   // 自动生成预览数据
-  try {
-    await sendNormalPreviewData(node, craftType);
-  } catch (e) {
-    console.warn('⚠️ Failed to auto-generate preview:', e);
-  }
+  scheduleNormalPreview(node, craftType);
 }
 
 // ========== 清除标记操作 ==========

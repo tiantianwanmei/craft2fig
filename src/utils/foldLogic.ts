@@ -2,13 +2,6 @@
 // 使用 @genki/folding-engine 核心算法包
 // 保持向后兼容的接口
 
-import {
-  calculateSequence,
-  createPanelInput,
-  type FoldSequenceResult as EngineFoldResult,
-  type PanelInput,
-} from '@genki/folding-engine';
-
 // --- Types (保持向后兼容) ---
 export interface Vector {
   id: string;
@@ -129,13 +122,74 @@ export function detectFoldEdges(vectors: Vector[]): FoldEdge[] {
   const edges: FoldEdge[] = [];
   const seenIds = new Set<string>();
 
-  for (let i = 0; i < vectors.length; i++) {
-    for (let j = i + 1; j < vectors.length; j++) {
-      const edge = findSharedEdge(vectors[i], vectors[j]);
-      if (edge && !seenIds.has(edge.id)) {
-        edges.push(edge);
-        seenIds.add(edge.id);
-      }
+  if (vectors.length <= 1) return edges;
+
+  const checkedPairs = new Set<string>();
+  const bucket = (value: number) => Math.round(value / TOLERANCE);
+
+  const topByKey = new Map<number, Vector[]>();
+  const bottomByKey = new Map<number, Vector[]>();
+  const leftByKey = new Map<number, Vector[]>();
+  const rightByKey = new Map<number, Vector[]>();
+
+  const pushToMap = (map: Map<number, Vector[]>, key: number, v: Vector) => {
+    const arr = map.get(key);
+    if (arr) {
+      arr.push(v);
+    } else {
+      map.set(key, [v]);
+    }
+  };
+
+  for (const v of vectors) {
+    pushToMap(topByKey, bucket(v.y), v);
+    pushToMap(bottomByKey, bucket(v.y + v.height), v);
+    pushToMap(leftByKey, bucket(v.x), v);
+    pushToMap(rightByKey, bucket(v.x + v.width), v);
+  }
+
+  const maybeAddEdge = (a: Vector, b: Vector) => {
+    if (a.id === b.id) return;
+    const pairKey = a.id < b.id ? `${a.id}|${b.id}` : `${b.id}|${a.id}`;
+    if (checkedPairs.has(pairKey)) return;
+    checkedPairs.add(pairKey);
+
+    const edge = findSharedEdge(a, b);
+    if (edge && !seenIds.has(edge.id)) {
+      edges.push(edge);
+      seenIds.add(edge.id);
+    }
+  };
+
+  const scanKeys = [-1, 0, 1];
+
+  for (const v of vectors) {
+    const bottomKey = bucket(v.y + v.height);
+    for (const d of scanKeys) {
+      const candidates = topByKey.get(bottomKey + d);
+      if (!candidates) continue;
+      for (const c of candidates) maybeAddEdge(v, c);
+    }
+
+    const topKey = bucket(v.y);
+    for (const d of scanKeys) {
+      const candidates = bottomByKey.get(topKey + d);
+      if (!candidates) continue;
+      for (const c of candidates) maybeAddEdge(v, c);
+    }
+
+    const rightKey = bucket(v.x + v.width);
+    for (const d of scanKeys) {
+      const candidates = leftByKey.get(rightKey + d);
+      if (!candidates) continue;
+      for (const c of candidates) maybeAddEdge(v, c);
+    }
+
+    const leftKey = bucket(v.x);
+    for (const d of scanKeys) {
+      const candidates = rightByKey.get(leftKey + d);
+      if (!candidates) continue;
+      for (const c of candidates) maybeAddEdge(v, c);
     }
   }
 

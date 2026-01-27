@@ -4,7 +4,7 @@
  * 支持 Cycles 渲染模式切换
  */
 
-import { memo } from 'react';
+import { memo, useState } from 'react';
 import { ExportTab } from './ExportTab';
 import { FoldTab } from './FoldTab';
 import { CraftTab } from './CraftTab';
@@ -12,6 +12,7 @@ import { CyclesControlPanel } from './CyclesControlPanel';
 import { LinearTabs } from '../ui/LinearTabs';
 import { useAppStore } from '../../store';
 import { SEMANTIC_TOKENS } from '@genki/shared-theme';
+import { HDRPanel } from '@genki/hdr-system';
 
 const styles = {
   root: {
@@ -46,6 +47,7 @@ export const ControlPanel = memo(function ControlPanel() {
   const clipmaskVectors = useAppStore((s) => s.clipmaskVectors);
   const markedLayers = useAppStore((s) => s.markedLayers);
   const cyclesPreviewOpen = useAppStore((s) => s.cyclesPreviewOpen);
+  const [hdrPanelOpen, setHdrPanelOpen] = useState(false);
 
   // Cycles 渲染模式下显示专属控制面板
   if (cyclesPreviewOpen) {
@@ -54,6 +56,27 @@ export const ControlPanel = memo(function ControlPanel() {
 
   return (
     <div style={styles.root}>
+      {hdrPanelOpen && <HDRPanel onClose={() => setHdrPanelOpen(false)} />}
+
+      <div style={{ padding: `${SEMANTIC_TOKENS.spacing.component.sm} ${SEMANTIC_TOKENS.spacing.component.lg}` }}>
+        <button
+          type="button"
+          onClick={() => setHdrPanelOpen(true)}
+          style={{
+            width: '100%',
+            padding: '8px 10px',
+            borderRadius: '8px',
+            background: SEMANTIC_TOKENS.color.bg.interactive.default,
+            border: `1px solid ${SEMANTIC_TOKENS.color.border.default}`,
+            color: SEMANTIC_TOKENS.color.text.primary,
+            fontSize: '12px',
+            cursor: 'pointer',
+          }}
+        >
+          HDR / Background / Ground
+        </button>
+      </div>
+
       {/* Tab 栏 - Linear 级别的流动 Tab 动画 */}
       <LinearTabs
         tabs={[

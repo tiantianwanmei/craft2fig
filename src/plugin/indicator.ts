@@ -33,8 +33,8 @@ export function createCraftIndicator(node: SceneNode, craftType: CraftTypeZh): v
   const indicatorName = `${CRAFT_INDICATOR_PREFIX}${craftType}_${node.id}`;
 
   // 找到父 Frame
-  let parentFrame = findParentFrame(node);
-  const container = parentFrame || figma.currentPage;
+  const parentFrame = findParentFrame(node);
+  let container: BaseNode = parentFrame || figma.currentPage;
 
   // 创建边框矩形
   const rect = figma.createRectangle();
@@ -72,32 +72,59 @@ export function createCraftIndicator(node: SceneNode, craftType: CraftTypeZh): v
   const groupName = CRAFT_GROUP_PREFIX + craftType;
 
   // 在父容器中查找或创建工艺组
-  let craftGroup: GroupNode | null = null;
-
-  if (hasChildren(container)) {
-    for (const child of container.children) {
+  const syncCraftGroup = (host: BaseNode): GroupNode | null => {
+    if (!hasChildren(host)) return null;
+    for (const child of host.children) {
       if (child.name === groupName && child.type === 'GROUP') {
-        craftGroup = child as GroupNode;
-        break;
+        return child as GroupNode;
       }
+    }
+    return null;
+  };
+
+  const ensureGrouped = (host: BaseNode, r: RectangleNode): void => {
+    const existing = syncCraftGroup(host);
+    if (existing) {
+      try {
+        existing.appendChild(r);
+        existing.visible = true;
+        return;
+      } catch (_e) {
+        // ignore
+      }
+    }
+    try {
+      const g = figma.group([r], host as any);
+      g.name = groupName;
+      g.locked = true;
+      g.visible = true;
+    } catch (_e) {
+      // ignore
+    }
+  };
+
+  if (parentFrame) {
+    try {
+      if (hasChildren(parentFrame)) {
+        parentFrame.appendChild(rect);
+        ensureGrouped(parentFrame, rect);
+        container = parentFrame;
+      }
+    } catch (_e) {
+      // ignore
     }
   }
 
-  if (parentFrame && hasChildren(parentFrame)) {
-    // Frame 内：先 append 再 group/append
-    parentFrame.appendChild(rect);
-    if (craftGroup) {
-      craftGroup.appendChild(rect);
-      craftGroup.visible = true;
-    } else {
-      craftGroup = figma.group([rect], parentFrame);
-      craftGroup.name = groupName;
-      craftGroup.locked = true;
-      craftGroup.visible = true;
+  if (container !== parentFrame) {
+    try {
+      rect.x = bounds.x - padding;
+      rect.y = bounds.y - padding;
+      figma.currentPage.appendChild(rect);
+      ensureGrouped(figma.currentPage, rect);
+      container = figma.currentPage;
+    } catch (_e) {
+      // ignore
     }
-  } else {
-    // Page：直接添加到页面
-    figma.currentPage.appendChild(rect);
   }
 
   // 保存关联的节点 ID

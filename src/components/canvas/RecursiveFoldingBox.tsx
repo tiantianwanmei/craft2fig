@@ -4,7 +4,6 @@
  */
 
 import React, { useMemo } from 'react';
-import * as THREE from 'three';
 
 // 面板节点类型
 export interface PanelNode {
@@ -32,6 +31,7 @@ export interface BuildTreeInput {
   rootId: string;
   drivenMap: Record<string, string[]>;
   nameMap: Record<string, string>;
+  yFlipBaseline?: number | null;
 }
 
 // 颜色映射
@@ -59,15 +59,23 @@ function getColorForPanel(name: string, index: number): string {
  * 构建拓扑树 - 将扁平的面板列表转换为嵌套的树结构
  */
 export function buildTopologyTree(input: BuildTreeInput): PanelNode | null {
-  const { vectors, rootId, drivenMap, nameMap } = input;
+  const { vectors, rootId, drivenMap, nameMap, yFlipBaseline = null } = input;
 
   if (!rootId || vectors.length === 0) return null;
 
-  const vectorMap = new Map(vectors.map(v => [v.id, v]));
+  const normalizedVectors =
+    yFlipBaseline === null || yFlipBaseline === undefined
+      ? vectors
+      : vectors.map((v) => ({
+          ...v,
+          y: yFlipBaseline - (v.y + v.height),
+        }));
+
+  const vectorMap = new Map(normalizedVectors.map(v => [v.id, v]));
   const visited = new Set<string>();
 
   // 判断两个面板的连接边
-  function getAttachEdge(parent: typeof vectors[0], child: typeof vectors[0]): PanelNode['attachEdge'] {
+  function getAttachEdge(parent: typeof normalizedVectors[0], child: typeof normalizedVectors[0]): PanelNode['attachEdge'] {
     const TOLERANCE = 15;
 
     // 子面板在父面板上方
@@ -147,7 +155,6 @@ interface Panel3DProps {
   thickness: number;
   offsetX: number;
   offsetY: number;
-  parentFolded?: boolean;
 }
 
 const Panel3D: React.FC<Panel3DProps> = ({
@@ -157,7 +164,6 @@ const Panel3D: React.FC<Panel3DProps> = ({
   thickness,
   offsetX,
   offsetY,
-  parentFolded = false,
 }) => {
   // 计算面板在3D空间中的位置
   const posX = (node.x - offsetX) * scale;
@@ -216,7 +222,7 @@ const Panel3D: React.FC<Panel3DProps> = ({
         />
       </mesh>
 
-      {/* 递归渲染子面板 - 关键：子面板在父面板的 group 内 */}
+      {/* 递归渲染子面板 */}
       {node.children.map((child) => (
         <Panel3D
           key={child.id}
@@ -226,7 +232,6 @@ const Panel3D: React.FC<Panel3DProps> = ({
           thickness={thickness}
           offsetX={offsetX}
           offsetY={offsetY}
-          parentFolded={true}
         />
       ))}
     </group>
@@ -241,6 +246,7 @@ interface RecursiveFoldingBoxProps {
   nameMap: Record<string, string>;
   foldProgress: number;
   thickness?: number;
+  yFlipBaseline?: number | null;
 }
 
 export const RecursiveFoldingBox: React.FC<RecursiveFoldingBoxProps> = ({
@@ -250,22 +256,33 @@ export const RecursiveFoldingBox: React.FC<RecursiveFoldingBoxProps> = ({
   nameMap,
   foldProgress,
   thickness = 2,
+  yFlipBaseline = null,
 }) => {
+  const normalizedVectors = useMemo(() => {
+    if (yFlipBaseline === null || yFlipBaseline === undefined) {
+      return vectors;
+    }
+    return vectors.map((v) => ({
+      ...v,
+      y: yFlipBaseline - (v.y + v.height),
+    }));
+  }, [vectors, yFlipBaseline]);
+
   // 构建拓扑树
   const tree = useMemo(() => {
-    return buildTopologyTree({ vectors, rootId, drivenMap, nameMap });
-  }, [vectors, rootId, drivenMap, nameMap]);
+    return buildTopologyTree({ vectors: normalizedVectors, rootId, drivenMap, nameMap });
+  }, [normalizedVectors, rootId, drivenMap, nameMap]);
 
   // 计算边界和缩放
   const { scale, offsetX, offsetY, centerX, centerZ } = useMemo(() => {
-    if (vectors.length === 0) {
+    if (normalizedVectors.length === 0) {
       return { scale: 1, offsetX: 0, offsetY: 0, centerX: 0, centerZ: 0 };
     }
 
     let minX = Infinity, minY = Infinity;
     let maxX = -Infinity, maxY = -Infinity;
 
-    vectors.forEach(v => {
+    normalizedVectors.forEach(v => {
       minX = Math.min(minX, v.x);
       minY = Math.min(minY, v.y);
       maxX = Math.max(maxX, v.x + v.width);
@@ -286,7 +303,7 @@ export const RecursiveFoldingBox: React.FC<RecursiveFoldingBoxProps> = ({
       centerX: (minX + maxX) / 2 * s - minX * s,
       centerZ: (minY + maxY) / 2 * s - minY * s,
     };
-  }, [vectors]);
+  }, [normalizedVectors]);
 
   if (!tree) {
     return null;

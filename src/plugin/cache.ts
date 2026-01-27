@@ -12,6 +12,7 @@ import {
   getCraftParams,
   type MarkedNodeInfo,
 } from './utils';
+import { extractSVGPath, cacheRasterImage, extractOriginalBounds } from './extractionUtils';
 
 // ========== 缓存实例 ==========
 
@@ -20,6 +21,8 @@ const markedNodesCache = new Map<string, MarkedNodeInfo>();
 
 /** 缓存是否已初始化（懒加载标记） */
 let cacheInitialized = false;
+
+let cacheInitScheduled = false;
 
 // ========== 缓存操作 ==========
 
@@ -59,11 +62,21 @@ export function removeFromCache(nodeId: string): boolean {
 export function getAllCachedNodes(): MarkedNodeInfo[] {
   console.log('🔍 [Plugin] getAllCachedNodes called, cache size:', markedNodesCache.size);
 
-  // 如果缓存为空，先尝试初始化
+  // 如果缓存为空：不要在当前调用栈里做全量遍历（常发生在 selectionChange/rAF 链路中）
+  // 改为仅调度一次异步重建，避免卡顿。
   if (markedNodesCache.size === 0) {
-    console.log('⚠️ [Plugin] Cache is empty, calling ensureCacheInitialized...');
-    ensureCacheInitialized();
-    console.log('✅ [Plugin] After ensureCacheInitialized, cache size:', markedNodesCache.size);
+    if (!cacheInitScheduled) {
+      cacheInitScheduled = true;
+      setTimeout(() => {
+        try {
+          // 允许重建：即使 cacheInitialized=true 但 size=0，也可能是状态不一致
+          cacheInitialized = false;
+          ensureCacheInitialized();
+        } finally {
+          cacheInitScheduled = false;
+        }
+      }, 0);
+    }
   }
 
   const result = Array.from(markedNodesCache.values());
@@ -97,9 +110,13 @@ export function getCachedNodesByCraft(craftType: CraftTypeZh): MarkedNodeInfo[] 
 export function ensureCacheInitialized(): void {
   console.log('🔧 [Plugin] ensureCacheInitialized called, cacheInitialized:', cacheInitialized);
 
-  if (cacheInitialized) {
+  if (cacheInitialized && markedNodesCache.size > 0) {
     console.log('✅ [Plugin] Cache already initialized, returning');
-    return; // 已初始化，直接返回
+    return; // 已初始化且有数据，直接返回
+  }
+
+  if (cacheInitialized && markedNodesCache.size === 0) {
+    console.warn('⚠️ [Plugin] Cache marked initialized but empty, rebuilding...');
   }
 
   console.log('🔍 [Plugin] Starting cache initialization...');
@@ -231,10 +248,17 @@ export function initializeCache(): void {
 }
 
 /** 刷新单个节点的缓存 */
-export function refreshNodeCache(node: SceneNode): void {
+export async function refreshNodeCache(node: SceneNode): Promise<void> {
   const crafts = getCraftData(node);
 
   if (crafts.length > 0) {
+    // 🆕 提取SVG路径和光栅缓存(异步)
+    const [svgPath, rasterCache] = await Promise.all([
+      extractSVGPath(node),
+      cacheRasterImage(node),
+    ]);
+    const originalBounds = extractOriginalBounds(node);
+
     const info: MarkedNodeInfo = {
       id: node.id,
       name: node.name,
@@ -243,6 +267,10 @@ export function refreshNodeCache(node: SceneNode): void {
       crafts,
       grayValue: getGrayValue(node),
       craftParams: getCraftParams(node) || undefined,
+      // 🆕 参数化系统字段
+      svgPath: svgPath || undefined,
+      rasterCache: rasterCache || undefined,
+      originalBounds: originalBounds || undefined,
     };
     markedNodesCache.set(node.id, info);
   } else {

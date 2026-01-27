@@ -149,18 +149,14 @@ function layerToPanelNode(
       jointInfo.width = config.jointWidth!;
       jointInfo.maxAngle = config.maxFoldAngle!;
     }
-    console.log(`🔗 panelTreeConverter: ${layer.name} jointInfo:`, jointInfo ? {
-      type: jointInfo.type,
-      position: jointInfo.position,
-      length: jointInfo.length,
-      direction: jointInfo.direction,
-    } : 'null');
   }
 
 
-  // 提取 SVG 路径
+  // 提取 SVG 路径（优先使用真实 svgPath，其次从 svgPreview 中提取）
   let svgPath: string | undefined;
-  if (layer.svgPreview) {
+  if (layer.svgPath) {
+    svgPath = layer.svgPath;
+  } else if (layer.svgPreview) {
     // 简单的正则提取 d 属性 (假设 svgPreview 是完整的 <svg>String)
     const match = layer.svgPreview.match(/d="([^"]+)"/);
     if (match) {
@@ -231,16 +227,19 @@ export function convertToPanelTree(
         return;
       }
 
-      const childNode = layerToPanelNode(
+      // 1. 初始转换 (不再应用递归偏移，保持紧贴状态)
+      // 🚀 核心变更：SkinnedFoldingMesh 内部会根据 gapSizeMultiplier 自动处理间隙和骨骼偏移，
+      // 这里如果再做偏移会导致间隙翻倍且 Joint 位置与面板边缘脱节。
+      const node = layerToPanelNode(
         childLayer,
         parentId,
         parentBounds,
         mergedConfig
       );
 
-      // 递归构建孙节点
-      childNode.children = buildChildren(childId, childNode.bounds);
-      children.push(childNode);
+      // 递归构建孙节点 (传递原始 bounds 用于边缘检测)
+      node.children = buildChildren(childId, node.bounds);
+      children.push(node);
     });
 
     return children;

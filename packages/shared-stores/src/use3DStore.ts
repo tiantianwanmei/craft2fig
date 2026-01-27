@@ -63,18 +63,18 @@ interface Store3DState {
   // 相机状态
   camera: Camera3DState;
   setCamera: (camera: Partial<Camera3DState>) => void;
-  
+
   // 动画状态
   animation: Animation3DState;
   setFoldProgress: (progress: number) => void;
   startFolding: () => void;
   stopFolding: () => void;
   setAnimationDuration: (duration: number) => void;
-  
+
   // 盒子几何状态
   box: Box3DState;
   setBoxDimensions: (dimensions: Partial<Box3DState>) => void;
-  
+
   // 环境设置
   environment: {
     preset: 'city' | 'studio' | 'sunset' | 'warehouse';
@@ -82,7 +82,7 @@ interface Store3DState {
     shadowIntensity: number;
   };
   setEnvironment: (env: Partial<Store3DState['environment']>) => void;
-  
+
   // 后处理效果开关
   postProcessing: {
     bloom: boolean;
@@ -129,7 +129,7 @@ export const use3DStore = create<Store3DState>((set) => ({
     set((state) => ({
       camera: { ...state.camera, ...camera },
     })),
-  
+
   // 默认动画配置
   animation: {
     foldProgress: 0, // 从平面开始
@@ -153,7 +153,7 @@ export const use3DStore = create<Store3DState>((set) => ({
     set((state) => ({
       animation: { ...state.animation, animationDuration: duration },
     })),
-  
+
   // 默认盒子尺寸 (标准快递盒)
   box: {
     length: 200, // mm
@@ -166,7 +166,7 @@ export const use3DStore = create<Store3DState>((set) => ({
     set((state) => ({
       box: { ...state.box, ...dimensions },
     })),
-  
+
   // 默认环境配置
   environment: {
     preset: 'city',
@@ -177,7 +177,7 @@ export const use3DStore = create<Store3DState>((set) => ({
     set((state) => ({
       environment: { ...state.environment, ...env },
     })),
-  
+
   // 默认后处理效果
   postProcessing: {
     bloom: true,
@@ -253,7 +253,7 @@ export const use3DStore = create<Store3DState>((set) => ({
     useForLighting: true,
     showBackground: true,
     intensity: 1.2,
-    groundProjection: false,
+    groundProjection: true,
     domeHeight: 1600,      // 穹顶高度 (默认 1.6m)
     domeRadius: 5000,     // 穹顶半径 (默认 5m)
   },

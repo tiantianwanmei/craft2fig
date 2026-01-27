@@ -4,12 +4,12 @@
  */
 
 import React, { useMemo, useEffect, useState } from 'react';
-import * as THREE from 'three';
 import { SkinnedFoldingMesh, TextureAtlasBuilder } from '@genki/folding-3d';
 import type { PanelNode, TextureAtlasResult, FoldTimingConfig } from '@genki/folding-3d';
 import type { MarkedLayer } from '../../types/core';
-import { convertToPanelTree, calculateTreeBounds } from '../../utils/panelTreeConverter';
+import { convertToPanelTree } from '../../utils/panelTreeConverter';
 import { usePBRMapsFromCraftLayers, type CraftPBRConfig, type DieBounds, DEFAULT_CRAFT_PBR_CONFIG } from '../../hooks/usePBRMapsFromCraftLayers';
+// import { PanelScaler } from '../../utils/PanelScaler';
 
 /** 渲染配置 */
 interface RenderConfig {
@@ -31,6 +31,8 @@ export interface SkinnedMeshBridgeProps {
   foldProgress: number;
   /** 折叠顺序 */
   foldSequence?: string[];
+  /** 折痕宽度（折叠边 width） */
+  jointWidth?: number;
   /** 缩放比例 */
   scale?: number;
   /** 纸张厚度 */
@@ -53,6 +55,8 @@ export interface SkinnedMeshBridgeProps {
   showWireframe?: boolean;
   /** PBR 参数配置 */
   pbrConfig?: CraftPBRConfig;
+  /** 🆕 连接器宽度缩放因子 */
+  gapSizeMultiplier?: number;
 }
 
 /** 默认渲染配置 */
@@ -75,7 +79,7 @@ function generateFoldTimings(
   // 收集所有面板
   const collectPanels = (node: PanelNode, result: PanelNode[] = []): PanelNode[] => {
     result.push(node);
-    node.children.forEach(child => collectPanels(child, result));
+    node.children.forEach((child: PanelNode) => collectPanels(child, result));
     return result;
   };
 
@@ -128,69 +132,58 @@ export const SkinnedMeshBridge: React.FC<SkinnedMeshBridgeProps> = ({
   rootPanelId,
   foldProgress,
   foldSequence = [],
+  jointWidth = 2,
   scale = 0.1,
   thickness = 0.8,
   offsetX,
   offsetY,
-  centerX = 0,
-  centerY = 0,
+  centerX: _centerX = 0,
+  centerY: _centerY = 0,
   craftLayers = [],
   renderConfig = DEFAULT_RENDER_CONFIG,
   showSkeleton = false,
   showWireframe = false,
   pbrConfig = DEFAULT_CRAFT_PBR_CONFIG,
+  gapSizeMultiplier, // 🆕 连接器宽度缩放因子（可选）
 }) => {
   const [textureAtlas, setTextureAtlas] = useState<TextureAtlasResult | null>(null);
 
-  // 检查是否所有面板都有贴图数据
-  const panelsReady = useMemo(() => {
-    if (!rootPanelId || panels.length === 0) return false;
-    // 检查根面板是否有 pngPreview
-    const rootPanel = panels.find(p => p.id === rootPanelId);
-    return rootPanel && !!rootPanel.pngPreview;
-  }, [panels, rootPanelId]);
+  // 🔧 简化的 gap 处理：只计算 multiplier，不修改树结构
+  // 将 UI 的折痕宽度（jointWidth）映射到 SkinnedFoldingMesh 所需的 gapSizeMultiplier
+  // 逻辑：SkinnedFoldingMesh 内部基础 gap = max(thickness * 1.5, 1.5)
+  //       multiplier = jointWidth / baseGap，确保滑杆能直接控制实际折痕宽度
+  const effectiveGapMultiplier = useMemo(() => {
+    const baseGap = Math.max(thickness * 1.5, 1.5);
+    // 🔧 修复：确保 safeWidth 至少为 0.1，防止 NaN 或 0 导致几何体生成失败
+    const safeWidth = Math.max(0.1, Number(jointWidth) || 0.1);
+    // 直接按 UI 宽度映射，baseGap 只用于归一化
+    const effectiveGapSize = safeWidth;
+    return effectiveGapSize / baseGap;
+  }, [jointWidth, thickness]);
 
   // 转换面板数据为 PanelNode 树
   const panelTree = useMemo(() => {
     if (!rootPanelId || panels.length === 0) return null;
 
-    // 等待贴图数据准备好
-    if (!panelsReady) {
-      console.log('⏳ SkinnedMeshBridge: 等待贴图数据...');
-      return null;
-    }
+    // 🚀 日志已移除:避免大量重复输出
 
-    // 调试：检查输入数据
-    console.log('🔍 SkinnedMeshBridge: 输入面板数据检查');
-    panels.forEach((p, i) => {
-      const hasPng = !!p.pngPreview;
-      const pngLen = p.pngPreview?.length || 0;
-      console.log(`  Panel ${i}: ${p.name} (${p.id}) - pngPreview: ${hasPng ? `YES (${pngLen} chars)` : 'NO'}`);
-    });
+    // 🚀 日志已移除:避免大量重复输出
 
     const tree = convertToPanelTree(panels, drivenMap, rootPanelId, {
-      jointWidth: 2,
+      jointWidth: Math.max(0.1, Number(jointWidth) || 0.1), // 🔧 确保传给转换器的宽度也有效
       maxFoldAngle: Math.PI / 2,
       edgeTolerance: 10,
       offsetX,
       offsetY,
     });
 
-    if (tree) {
-      console.log('🌳 SkinnedMeshBridge: 面板树构建完成');
-      // 检查树中的 rasterImage
-      const checkTree = (node: PanelNode, depth = 0) => {
-        const indent = '  '.repeat(depth);
-        const hasRaster = !!node.rasterImage;
-        const rasterLen = typeof node.rasterImage === 'string' ? node.rasterImage.length : 0;
-        console.log(`${indent}📦 ${node.name} (${node.id}): rasterImage = ${hasRaster ? `YES (${rasterLen} chars)` : 'NO'}`);
-        node.children.forEach(child => checkTree(child, depth + 1));
-      };
-      checkTree(tree);
-    }
+    // 🚀 日志已移除:避免大量重复输出
 
     return tree;
-  }, [panels, drivenMap, rootPanelId, panelsReady, offsetX, offsetY]);
+  }, [panels, drivenMap, rootPanelId, jointWidth, offsetX, offsetY]);
+
+  // 🔧 使用传入的 gapSizeMultiplier 或计算的 effectiveGapMultiplier
+  const appliedGapMultiplier = gapSizeMultiplier ?? effectiveGapMultiplier;
 
   // 生成折叠时序
   const foldTimings = useMemo(() => {
@@ -224,14 +217,11 @@ export const SkinnedMeshBridge: React.FC<SkinnedMeshBridgeProps> = ({
       height: maxY - minY,
     };
 
-    console.log('📐 SkinnedMeshBridge - dieBounds:', bounds);
+    // 🚀 日志已移除:避免大量重复输出
     return bounds;
   }, [panelTree]);
 
-  // 🔍 调试：打印 pbrConfig 变化
-  useEffect(() => {
-    console.log('🎛️ SkinnedMeshBridge - pbrConfig 更新:', JSON.stringify(pbrConfig, null, 2));
-  }, [pbrConfig]);
+  // 🚀 日志已移除:避免大量重复输出
 
   // 生成 PBR 贴图（使用传入的 craftLayers 和 pbrConfig）
   const pbrMaps = usePBRMapsFromCraftLayers({
@@ -243,18 +233,25 @@ export const SkinnedMeshBridge: React.FC<SkinnedMeshBridgeProps> = ({
     dieBounds,
   });
 
-  // 🔍 调试：打印 PBR 贴图生成结果
-  useEffect(() => {
-    console.log('🎨 SkinnedMeshBridge - pbrMaps 更新:', {
-      hasMetalnessMap: !!pbrMaps.metalnessMap,
-      hasRoughnessMap: !!pbrMaps.roughnessMap,
-      hasClearcoatMap: !!pbrMaps.clearcoatMap,
-    });
-  }, [pbrMaps]);
+  // 🚀 日志已移除:避免大量重复输出
 
   // 异步构建纹理图集
   useEffect(() => {
     if (!panelTree) {
+      setTextureAtlas(null);
+      return;
+    }
+
+    const hasRaster = (node: PanelNode): boolean => {
+      if ((node as any).rasterImage) return true;
+      const children = Array.isArray((node as any).children) ? (node as any).children : [];
+      for (const c of children) {
+        if (c && hasRaster(c as PanelNode)) return true;
+      }
+      return false;
+    };
+
+    if (!hasRaster(panelTree)) {
       setTextureAtlas(null);
       return;
     }
@@ -296,26 +293,20 @@ export const SkinnedMeshBridge: React.FC<SkinnedMeshBridgeProps> = ({
     clearcoatRoughness: 0.1,
   };
 
-  // 🔍 调试：打印 PBR 贴图状态
-  useEffect(() => {
-    console.log('🎛️ SkinnedMeshBridge - PBR 状态:', {
-      hasPbrMaps,
-      craftLayersCount: craftLayers.length,
-      pbrConfig: JSON.stringify(pbrConfig),
-    });
-  }, [hasPbrMaps, craftLayers.length, pbrConfig]);
+  // 🚀 日志已移除:避免大量重复输出
 
   if (!panelTree) {
     return null;
   }
 
-  // 🔥 材质策略：
+  // 材质策略：
   // - 基础材质使用纸张参数（metalness=0, roughness=0.85）
   // - PBR 贴图控制工艺区域的效果（贴图中白色区域 = 工艺效果）
   // - 如果没有 PBR 贴图，使用 pbrConfig.hotfoil 作为全局预览（临时方案）
   return (
     <group position={groupTransform.position}>
       <SkinnedFoldingMesh
+        key={`mesh-${appliedGapMultiplier}`} // 🔧 强制在宽度变化时重新挂载，彻底清除潜在的状态残留
         panelTree={panelTree}
         textureAtlas={textureAtlas ?? undefined}
         foldProgress={foldProgress}
@@ -323,8 +314,9 @@ export const SkinnedMeshBridge: React.FC<SkinnedMeshBridgeProps> = ({
         cornerRadius={2}
         jointSegments={8}
         scale={scale}
+        gapSizeMultiplier={appliedGapMultiplier}
         materialProps={{
-          // 基础材质：有贴图时用纸张参数，无贴图时用工艺参数预览
+          // 
           roughness: hasPbrMaps
             ? basePaperParams.roughness * renderConfig.roughnessMultiplier
             : pbrConfig.hotfoil.roughness * renderConfig.roughnessMultiplier,
@@ -332,10 +324,10 @@ export const SkinnedMeshBridge: React.FC<SkinnedMeshBridgeProps> = ({
             ? basePaperParams.metalness + renderConfig.metalnessBoost
             : Math.min(1, pbrConfig.hotfoil.metalness + renderConfig.metalnessBoost),
           color: '#ffffff',
-          // PBR 贴图控制工艺区域
-          metalnessMap: pbrMaps.metalnessMap,
-          roughnessMap: pbrMaps.roughnessMap,
-          clearcoatMap: pbrMaps.clearcoatMap,
+          // 🚀 只在贴图存在时才传递,避免 THREE.Material 警告
+          ...(pbrMaps.metalnessMap && { metalnessMap: pbrMaps.metalnessMap }),
+          ...(pbrMaps.roughnessMap && { roughnessMap: pbrMaps.roughnessMap }),
+          ...(pbrMaps.clearcoatMap && { clearcoatMap: pbrMaps.clearcoatMap }),
           // 清漆：有贴图时由贴图控制，无贴图时全局预览
           clearcoat: hasPbrMaps
             ? 1.0  // 启用清漆，由 clearcoatMap 控制强度

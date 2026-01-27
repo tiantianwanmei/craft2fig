@@ -43,6 +43,12 @@ export interface PanelNode {
   boneIndex?: number;
   /** 额外元数据 */
   meta?: Record<string, unknown>;
+
+  // 🆕 参数化系统字段
+  /** 连接器宽度（默认 = thickness） */
+  gapSize?: number;
+  /** 原始边界（用于动态缩放计算） */
+  originalBounds?: Rect2D;
 }
 
 /** 折痕/关节信息 */
@@ -59,6 +65,10 @@ export interface JointInfo {
   direction: 1 | -1;
   /** 最大折叠角度 (弧度) */
   maxAngle: number;
+
+  // 🆕 参数化系统字段
+  /** 连接器宽度（韧带长度，默认 = thickness） */
+  gapSize?: number;
 }
 
 /** 纹理图集配置 */
@@ -223,6 +233,10 @@ export interface SkinnedFoldingMeshProps {
   showWireframe?: boolean;
   /** 自定义折叠时序 (可选，不提供则自动生成) */
   foldTimings?: FoldTimingConfig[];
+  /** 关节插值类型 */
+  jointInterpolation?: 'linear' | 'smooth' | 'arc';
+  /** 🆕 连接器宽度缩放因子 (默认 1.0) */
+  gapSizeMultiplier?: number;
 }
 
 /** 折叠时序配置 */

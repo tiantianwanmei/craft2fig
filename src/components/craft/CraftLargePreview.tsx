@@ -6,7 +6,7 @@
 import { memo, useRef, useEffect, useCallback } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import type { CraftType } from '../../types/core';
-import { usePreviewData, useAppStore } from '../../store';
+import { usePreviewData, usePreviewImageUrl, useAppStore } from '../../store';
 import { CraftRenderer } from '../../utils/craftRenderer';
 import { globalCraftParams, onParamsChange, resetGlobalCraftParams } from '../../utils/globalCraftParams';
 
@@ -142,6 +142,8 @@ export const CraftLargePreview = memo(function CraftLargePreview({
 
   // ⚠️ 预览数据目前只稳定缓存 NORMAL 的 heightData；大图也应复用 NORMAL 底图
   const { heightData, width, height } = usePreviewData(selectedCraftLayerId || undefined, 'NORMAL');
+
+  const { url: previewUrl } = usePreviewImageUrl(selectedCraftLayerId || undefined, 'NORMAL');
 
   // 关闭/切换时重置内部缓存：组件在 craftType=null 时并不会卸载，ref 会跨次打开复用
   useEffect(() => {
@@ -443,6 +445,55 @@ export const CraftLargePreview = memo(function CraftLargePreview({
       }
     }
   }, [heightData, width, height, craftType, renderPreview]);
+
+  // 快速底图：大图预览打开时先绘制压缩底图，避免黑屏等待
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    const container = containerRef.current;
+    if (!canvas || !container) return;
+    if (!craftType) return;
+    if (!previewUrl) return;
+    // 已有 heightData 时，工艺渲染很快会覆盖；这里主要用于 heightData 尚未 ready 的瞬间
+
+    const seqAtStart = renderSeqRef.current;
+
+    let canceled = false;
+    const img = new Image();
+    img.decoding = 'async';
+    img.onload = () => {
+      if (canceled) return;
+      // If a renderer pass has been scheduled/completed since we started, don't overwrite it.
+      if (renderSeqRef.current !== seqAtStart) return;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return;
+
+      // ensure pixel size matches container
+      const rect = container.getBoundingClientRect();
+      const dpr = Math.max(1, Math.min(2, window.devicePixelRatio || 1));
+      const pw = Math.max(1, Math.round(rect.width * dpr));
+      const ph = Math.max(1, Math.round(rect.height * dpr));
+      if (canvas.width !== pw) canvas.width = pw;
+      if (canvas.height !== ph) canvas.height = ph;
+
+      const iw = img.naturalWidth || 1;
+      const ih = img.naturalHeight || 1;
+      const s = Math.min(pw / iw, ph / ih) * 0.85;
+      const dw = Math.max(1, Math.round(iw * s));
+      const dh = Math.max(1, Math.round(ih * s));
+      const dx = Math.round((pw - dw) * 0.5);
+      const dy = Math.round((ph - dh) * 0.5);
+
+      ctx.clearRect(0, 0, pw, ph);
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = 'high';
+      ctx.drawImage(img, 0, 0, iw, ih, dx, dy, dw, dh);
+    };
+    img.src = previewUrl;
+
+    return () => {
+      canceled = true;
+    };
+  }, [previewUrl, craftType, selectedCraftLayerId]);
 
   // 🚀 订阅全局参数变化（参考原版 updateUVSettings）- 使用 debounce 减少闪烁
   useEffect(() => {

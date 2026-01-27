@@ -10,6 +10,7 @@ export {
   useCraftParams,
   useNotifications,
   usePreviewData,
+  usePreviewImageUrl,
   useSelectedCraftLayers,
 } from './appStore';
 export type { ActiveTab, ViewMode } from './appStore';

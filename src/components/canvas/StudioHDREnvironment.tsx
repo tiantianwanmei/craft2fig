@@ -112,6 +112,24 @@ function adjustAlpha(hex: string, alpha: number): string {
 }
 
 /**
+ * 导出：生成 Studio HDR 纹理
+ * @param preset - 预设类型
+ * @param resolution - 分辨率（默认 1024）
+ * @returns THREE.Texture
+ */
+export function generateStudioHDRTexture(
+  preset: keyof typeof PRESETS = 'studio',
+  resolution: number = 1024
+): THREE.Texture {
+  const canvas = generateStudioHDR(preset, resolution);
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.mapping = THREE.EquirectangularReflectionMapping;
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.needsUpdate = true;
+  return texture;
+}
+
+/**
  * Studio HDR 环境组件
  * 设置 scene.environment 以启用 PBR 材质反射
  */

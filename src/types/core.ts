@@ -88,6 +88,16 @@ export interface MarkedLayer {
     readonly left: string;
     readonly right: string;
   };
+
+  // 🆕 参数化系统字段
+  readonly svgPath?: string;           // SVG 路径数据（真实形状，用于 ShapeGeometry）
+  readonly rasterCache?: string;       // Base64 缓存的光栅化贴图（一次性生成）
+  readonly originalBounds?: {          // 原始边界（用于动态缩放计算）
+    readonly x: number;
+    readonly y: number;
+    readonly width: number;
+    readonly height: number;
+  };
 }
 
 // ========== 折边类型 ==========

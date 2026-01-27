@@ -27,21 +27,35 @@ export const ExportTab = memo(function ExportTab() {
     markedLayers,
     clearMarkedLayers,
     sourceFrameId,
+    clipmaskVectors,
+    foldSequence,
+    drivenMap,
+    panelNameMap,
+    hPanelId,
+    cyclesPreviewOpen,
     setCyclesPreviewOpen,
+    addNotification,
   } = useAppStore(
     useShallow((s) => ({
       markedLayers: s.markedLayers,
       clearMarkedLayers: s.clearMarkedLayers,
       sourceFrameId: s.sourceFrameId,
+      clipmaskVectors: (s as any).clipmaskVectors,
+      foldSequence: (s as any).foldSequence,
+      drivenMap: (s as any).drivenMap,
+      panelNameMap: (s as any).panelNameMap,
+      hPanelId: (s as any).hPanelId,
+      cyclesPreviewOpen: s.cyclesPreviewOpen,
       setCyclesPreviewOpen: s.setCyclesPreviewOpen,
+      addNotification: s.addNotification,
     }))
   );
-  const { sendMessage } = usePluginMessage();
+  const { sendMessage, prepareUnifiedExportDirectory } = usePluginMessage();
 
   // 本地状态
   const [clipMode, setClipMode] = useState(false);
   const [craftVector, setCraftVector] = useState(false);
-  const [grayValue, setGrayValue] = useState(255);
+  const [grayValue, _setGrayValue] = useState(255);
   const [markSameColor, setMarkSameColor] = useState(false);
   const [markInClipMask, setMarkInClipMask] = useState(false);
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
@@ -67,6 +81,7 @@ export const ExportTab = memo(function ExportTab() {
     sendMessage({ type: 'getSavedVectors' });
     // 然后打开预览窗口
     setCyclesPreviewOpen(true);
+    addNotification('Opening Cycles Render Preview…', 'info');
   }, [setCyclesPreviewOpen, sendMessage]);
 
   const handleAddClipmask = useCallback(() => {
@@ -119,6 +134,37 @@ export const ExportTab = memo(function ExportTab() {
     });
   }, []);
 
+  const handleUnifiedExport = useCallback(async () => {
+    if (!sourceFrameId) {
+      sendMessage({ type: 'NOTIFY', payload: { message: 'Please select a Frame first', variant: 'warning' } } as any);
+      return;
+    }
+
+    try {
+      await prepareUnifiedExportDirectory();
+    } catch (_e) {
+      // ignore
+    }
+
+    const vectorIds = Array.isArray(clipmaskVectors) ? clipmaskVectors.map((v: any) => v.id).filter(Boolean) : [];
+    sendMessage({
+      type: 'exportUnified',
+      payload: {
+        frameId: sourceFrameId,
+        vectorIds,
+        scale: 2,
+        format: 'PNG',
+        exportCraftVector: craftVector,
+        foldSequence: Array.isArray(foldSequence) ? foldSequence : [],
+        drivenRelations: drivenMap || {},
+        panelNameMap: panelNameMap || {},
+        rootPanelId: hPanelId || null,
+        normalSettings: {},
+        craftSettings: {},
+      },
+    } as any);
+  }, [sourceFrameId, clipmaskVectors, craftVector, foldSequence, drivenMap, panelNameMap, hPanelId, sendMessage, prepareUnifiedExportDirectory]);
+
   return (
     <>
     <div className="panel-tab-content active">
@@ -134,6 +180,16 @@ export const ExportTab = memo(function ExportTab() {
         >
           Start Cycles Render Preview
         </button>
+
+        <div style={{
+          fontSize: '11px',
+          color: SEMANTIC_TOKENS.color.text.tertiary,
+          marginTop: '-10px',
+          marginBottom: SEMANTIC_TOKENS.spacing.component.lg,
+          userSelect: 'text',
+        }}>
+          cyclesPreviewOpen: {String(cyclesPreviewOpen)}
+        </div>
 
         {/* Clip Mode Toggle */}
         <div
@@ -178,6 +234,15 @@ export const ExportTab = memo(function ExportTab() {
           </div>
           <div className={`toggle-switch ${craftVector ? 'active' : ''}`} />
         </div>
+
+        <button
+          type="button"
+          className="export-btn"
+          onClick={handleUnifiedExport}
+          style={{ marginTop: SEMANTIC_TOKENS.spacing.component.lg }}
+        >
+          🚀 Export to Blender
+        </button>
       </Section>
 
       {/* Craft Marking Section */}

@@ -11,10 +11,13 @@ import { SEMANTIC_TOKENS } from '@genki/shared-theme';
 import type { MarkedLayer } from '../../types/core';
 import * as THREE from 'three';
 import { OrbitControls as ThreeOrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { HDRDomeGround } from '@genki/craft-renderer';
 import { NestedGroupFold } from './NestedGroupFold';
 import { SkinnedMeshBridge } from './SkinnedMeshBridge';
-import { usePBRMapsFromCraftLayers, DEFAULT_CRAFT_PBR_CONFIG, type CraftPBRConfig, type CraftTypeId } from '../../hooks/usePBRMapsFromCraftLayers';
+import { usePBRMapsFromCraftLayers, DEFAULT_CRAFT_PBR_CONFIG, type CraftPBRConfig } from '../../hooks/usePBRMapsFromCraftLayers';
+import { use3DStore, useWebGPUStore } from '@genki/shared-stores';
+import { GroundProjectedEnv } from './GroundProjectedEnv';
+import { ContactShadows, Center } from '@react-three/drei';
+import { HDRUploaderCompact } from '@genki/hdr-system';
 
 // 贴图缓存 - 全局缓存避免重复加载
 const textureCache = new Map<string, THREE.Texture>();
@@ -123,45 +126,176 @@ const CRAFT_PBR_MAPPING: Record<string, { roughness: number; metalness: number; 
 
 export type HDRPreset = typeof HDR_PRESETS[number]['value'];
 
-// HDR Dome 配置 - 使用 drei Environment ground 属性
-// height: 环境贴图相机高度, radius: 虚拟世界半径, scale: 投影球体大小
-const DEFAULT_HDR_DOME = {
-  showBackground: true,
-  groundProjection: true,
-  domeHeight: 15,       // 相机高度（drei 默认 15）
-  domeRadius: 120,      // 虚拟世界半径（drei 默认 60，增大避免边界）
-  domeScale: 10000,     // 投影球体大小（增大到 10000 避免穿帮）
+const SceneEnvironment: React.FC = () => {
+  const { scene, gl, camera } = useThree();
+  const hdrTexture = useWebGPUStore((s) => s.hdrTexture);
+  const hdrLoaded = useWebGPUStore((s) => s.hdrLoaded);
+
+  const hdr = use3DStore((s) => s.hdr);
+  const background = use3DStore((s) => s.background);
+  const ground = use3DStore((s) => s.ground);
+
+  const hdrBgRef = useRef<THREE.Mesh | null>(null);
+
+  const backgroundMode = background.mode;
+  // 启用 groundProjection 时，<GroundProjectedEnv/> 内部的 <Environment background /> 会负责渲染 HDR 背景
+  // 此时再渲染手动背景球会产生叠加（历史上表现为“中间小圆球”）
+  // 修复：恢复互斥逻辑，当启用 groundProjection 时，不渲染普通背景球
+  const showHDRBackground = backgroundMode === 'hdr' && hdr.showBackground && !hdr.groundProjection && !!hdrTexture;
+
+  useEffect(() => {
+    if (showHDRBackground) return;
+
+    if (backgroundMode === 'solid') {
+      gl.setClearColor(new THREE.Color(background.solidColor), 1);
+      return;
+    }
+
+    if (backgroundMode === 'gradient') {
+      gl.setClearColor(new THREE.Color(background.gradientBottom), 1);
+    }
+  }, [backgroundMode, background.gradientBottom, background.solidColor, gl, showHDRBackground]);
+
+  useEffect(() => {
+    const previousEnv = scene.environment;
+
+    // 如果未加载 HDR，或不使用 HDR 作为光照，则清空 environment
+    if (!hdrLoaded || !hdrTexture || !hdr.useForLighting || !(hdrTexture as any).isTexture) {
+      if (scene.environment) scene.environment = null;
+      return;
+    }
+
+    const pmremGenerator = new THREE.PMREMGenerator(gl);
+    pmremGenerator.compileEquirectangularShader();
+    const envRT = pmremGenerator.fromEquirectangular(hdrTexture);
+    const envMap = envRT.texture;
+
+    scene.environment = envMap;
+    if ('environmentIntensity' in scene) {
+      (scene as any).environmentIntensity = hdr.intensity;
+    }
+
+    return () => {
+      scene.environment = previousEnv ?? null;
+      envRT.dispose();
+      pmremGenerator.dispose();
+    };
+  }, [gl, hdr.intensity, hdr.useForLighting, hdrLoaded, hdrTexture, scene, hdr.showBackground, hdr.groundProjection, hdr.domeHeight, hdr.domeRadius, backgroundMode]);
+
+  const shouldRenderHDRGround = backgroundMode === 'hdr' && hdr.groundProjection && !!hdrTexture && hdr.showBackground;
+
+  useFrame(() => {
+    if (!hdrBgRef.current) return;
+    const persp = camera as THREE.PerspectiveCamera;
+    hdrBgRef.current.position.copy(camera.position);
+    const safeFar = Number.isFinite(persp.far) ? persp.far : 5000;
+    const s = Math.max(50000, safeFar * 2);
+    // 修复：保持 x 轴翻转 (-s)，否则贴图是反的，且可能导致看到球体外部
+    hdrBgRef.current.scale.set(-s, s, s);
+  });
+
+  return (
+    <>
+      {showHDRBackground && hdrTexture && (
+        <mesh
+          ref={hdrBgRef}
+          scale={[-1, 1, 1]}
+          key={`hdr-bg-${hdrTexture.uuid || 'none'}-${hdr.showBackground ? 1 : 0}-${ground.offsetY || 0}`}
+        >
+          <sphereGeometry args={[1, 64, 32]} />
+          <meshBasicMaterial map={hdrTexture} side={THREE.BackSide} toneMapped={false} />
+        </mesh>
+      )}
+
+      {shouldRenderHDRGround && (
+        <GroundProjectedEnv
+          key={`${hdr.domeHeight}-${hdr.domeRadius}-${hdrTexture?.uuid || 'none'}`}
+          texture={hdrTexture}
+          height={hdr.domeHeight}
+          radius={hdr.domeRadius}
+          scale={20000}
+          exposure={hdr.intensity}
+        />
+      )}
+
+      {ground.visible && (
+        <>
+          <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, ground.offsetY || 0, 0]} receiveShadow>
+            <planeGeometry args={[500, 500]} />
+            <meshStandardMaterial
+              color={ground.color}
+              metalness={Math.min(1, Math.max(0, ground.reflectivity))}
+              roughness={1 - Math.min(1, Math.max(0, ground.reflectivity))}
+              transparent={ground.opacity < 1}
+              opacity={ground.opacity}
+            />
+          </mesh>
+          <ContactShadows
+            position={[0, (ground.offsetY || 0) + 0.001, 0]}
+            scale={300}
+            blur={2}
+            far={50}
+            opacity={0.35 * ground.opacity}
+            frames={1}
+          />
+        </>
+      )}
+    </>
+  );
 };
 
 // 自定义 OrbitControls - 避免 drei 的 URL 问题
 const CustomOrbitControls: React.FC = () => {
   const { camera, gl } = useThree();
   const controlsRef = useRef<ThreeOrbitControls | null>(null);
+  const groundOffsetY = use3DStore((s) => s.ground.offsetY || 0);
 
   useEffect(() => {
     controlsRef.current = new ThreeOrbitControls(camera, gl.domElement);
     controlsRef.current.enableDamping = true;
-    controlsRef.current.dampingFactor = 0.05;
+    controlsRef.current.dampingFactor = 0.1;
+    controlsRef.current.minDistance = 1;
+    controlsRef.current.maxDistance = 50000;
+    controlsRef.current.enableRotate = true;
+    controlsRef.current.enableZoom = true;
+    controlsRef.current.enablePan = true;
+    controlsRef.current.target.set(0, groundOffsetY, 0);
+    camera.lookAt(0, groundOffsetY, 0);
     return () => { controlsRef.current?.dispose(); };
   }, [camera, gl]);
 
-  useFrame(() => { controlsRef.current?.update(); });
+  useEffect(() => {
+    if (!controlsRef.current) return;
+    controlsRef.current.target.set(0, groundOffsetY, 0);
+    controlsRef.current.update();
+  }, [groundOffsetY]);
+
+  useFrame(() => {
+    if (!controlsRef.current) return;
+    controlsRef.current.update();
+  });
   return null;
 };
 
 // 自定义相机设置 - 只在首次挂载时设置，避免视角重置
-const CameraSetup: React.FC<{ position: [number, number, number]; fov: number }> = ({ position, fov }) => {
+const CameraSetup: React.FC = () => {
   const { camera } = useThree();
+  const groundOffsetY = use3DStore((s) => s.ground.offsetY || 0);
+  const { position, target, fov } = use3DStore((s) => s.camera);
   const initialized = useRef(false);
 
   useEffect(() => {
     if (!initialized.current) {
       camera.position.set(...position);
-      (camera as THREE.PerspectiveCamera).fov = fov;
-      (camera as THREE.PerspectiveCamera).updateProjectionMatrix();
+      camera.lookAt(target[0], (target[1] || 0) + groundOffsetY, target[2]);
+      const persp = camera as THREE.PerspectiveCamera;
+      persp.fov = fov;
+      persp.near = 0.1;
+      persp.far = 100000;
+      persp.updateProjectionMatrix();
       initialized.current = true;
     }
-  }, [camera, position, fov]);
+  }, [camera, position, target, fov, groundOffsetY]);
   return null;
 };
 
@@ -403,6 +537,7 @@ const FoldingPanelGroup: React.FC<FoldingPanelGroupProps> = ({
             map={panelTexture}
             normalMap={normalTexture}
             bumpMap={bumpTexture}
+            side={THREE.DoubleSide}
             bumpScale={0.05}
             color={panelTexture ? '#ffffff' : color}
             roughness={pbrParams.roughness * renderConfig.roughnessMultiplier}
@@ -550,6 +685,7 @@ const FoldingPanelGroup: React.FC<FoldingPanelGroupProps> = ({
           map={panelTexture}
           normalMap={normalTexture}
           bumpMap={bumpTexture}
+          side={THREE.DoubleSide}
           bumpScale={0.05}
           color={panelTexture ? '#ffffff' : color}
           roughness={pbrParams.roughness * renderConfig.roughnessMultiplier}
@@ -589,25 +725,19 @@ interface OrphanPanelMeshProps {
   scale: number;
   offsetX: number;
   offsetY: number;
-  centerX: number;
-  centerY: number;
   renderConfig: RenderConfig;
 }
 
 const OrphanPanelMesh: React.FC<OrphanPanelMeshProps> = ({
-  panel, craftLayers, thickness, scale, offsetX, offsetY, centerX, centerY, renderConfig
+  panel, craftLayers, thickness, scale, offsetX, offsetY, renderConfig
 }) => {
   const x = ((panel as any).x ?? panel.bounds?.x ?? 0) - offsetX;
   const y = ((panel as any).y ?? panel.bounds?.y ?? 0) - offsetY;
   const w = (panel as any).width ?? panel.bounds?.width ?? 100;
   const h = (panel as any).height ?? panel.bounds?.height ?? 50;
 
-  // 计算居中偏移
-  const centerOffsetX = (centerX - offsetX) * scale;
-  const centerOffsetZ = (centerY - offsetY) * scale;
-
-  const posX = x * scale - centerOffsetX;
-  const posZ = y * scale - centerOffsetZ;
+  const posX = x * scale;
+  const posZ = y * scale;
   const width = w * scale;
   const height = h * scale;
 
@@ -636,6 +766,7 @@ const OrphanPanelMesh: React.FC<OrphanPanelMeshProps> = ({
         map={panelTexture}
         normalMap={normalTexture}
         bumpMap={bumpTexture}
+        side={THREE.DoubleSide}
         bumpScale={0.05}
         color={panelTexture ? '#ffffff' : '#888888'}
         roughness={pbrParams.roughness * renderConfig.roughnessMultiplier}
@@ -672,6 +803,7 @@ const CraftAnnotationMesh: React.FC<CraftAnnotationMeshProps> = ({ layer, index 
         metalness={pbrParams.metalness}
         clearcoat={pbrParams.clearcoat}
         clearcoatRoughness={0.1}
+        side={THREE.DoubleSide}
         color={craftType === '烫金' ? '#d4af37' : craftType === '烫银' ? '#c0c0c0' : '#ffffff'}
       />
     </mesh>
@@ -683,12 +815,10 @@ export const CyclesRenderPreview: React.FC = () => {
   const {
     cyclesPreviewOpen,
     cyclesRenderMode,
-    cyclesHDRPreset,
     clipmaskVectors,
     markedLayers,
     setCyclesPreviewOpen,
     setCyclesRenderMode,
-    setCyclesHDRPreset,
     foldSequence,
     rootPanelId,
     drivenMap,
@@ -696,12 +826,10 @@ export const CyclesRenderPreview: React.FC = () => {
     useShallow((s) => ({
       cyclesPreviewOpen: s.cyclesPreviewOpen,
       cyclesRenderMode: s.cyclesRenderMode,
-      cyclesHDRPreset: s.cyclesHDRPreset,
       clipmaskVectors: s.clipmaskVectors,
       markedLayers: s.markedLayers,
       setCyclesPreviewOpen: s.setCyclesPreviewOpen,
       setCyclesRenderMode: s.setCyclesRenderMode,
-      setCyclesHDRPreset: s.setCyclesHDRPreset,
       foldSequence: s.foldSequence,
       rootPanelId: s.rootPanelId,
       drivenMap: s.drivenMap,
@@ -709,16 +837,14 @@ export const CyclesRenderPreview: React.FC = () => {
   );
 
   const [foldProgress, setFoldProgress] = React.useState(0);
-  const [domeHeight, setDomeHeight] = React.useState(DEFAULT_HDR_DOME.domeHeight);
-  const [domeRadius, setDomeRadius] = React.useState(DEFAULT_HDR_DOME.domeRadius);
-  const [domeScale, setDomeScale] = React.useState(DEFAULT_HDR_DOME.domeScale);
-  const [geometryMode, setGeometryMode] = React.useState<'nested' | 'skinned'>('nested');
+  const [geometryMode, setGeometryMode] = React.useState<'nested' | 'skinned'>('skinned');
   const [showSkeleton, setShowSkeleton] = React.useState(false);
   const [showWireframe, setShowWireframe] = React.useState(false);
+  const [foldEdgeWidth, setFoldEdgeWidth] = React.useState(2);
+  const groundOffsetY = use3DStore((s) => s.ground.offsetY || 0);
 
-  // PBR 参数配置状态
-  const [pbrConfig, setPbrConfig] = React.useState<CraftPBRConfig>(DEFAULT_CRAFT_PBR_CONFIG);
-  const [selectedCraftType, setSelectedCraftType] = React.useState<CraftTypeId>('hotfoil');
+  // PBR 参数（此视图不提供调参面板，避免污染主 3D 视图）
+  const pbrConfig: CraftPBRConfig = DEFAULT_CRAFT_PBR_CONFIG;
 
   const handleClose = useCallback(() => {
     setCyclesPreviewOpen(false);
@@ -739,25 +865,26 @@ export const CyclesRenderPreview: React.FC = () => {
         {/* 3D 画布 */}
         <div style={styles.canvasArea}>
           <Canvas shadows dpr={[1, 2]} gl={{ antialias: true }}>
-            <CameraSetup position={[25, 20, 25]} fov={45} />
-            <Suspense fallback={null}>
-              <CraftScene3D
-                panels={clipmaskVectors}
-                craftLayers={markedLayers}
-                hdrPreset={cyclesHDRPreset as HDRPreset}
-                foldProgress={foldProgress}
-                foldSequence={foldSequence}
-                rootPanelId={rootPanelId}
-                drivenMap={drivenMap}
-                domeHeight={domeHeight}
-                domeRadius={domeRadius}
-                domeScale={domeScale}
-                renderMode={cyclesRenderMode as 'realtime' | 'pathtracing' | 'hybrid'}
-                geometryMode={geometryMode}
-                showSkeleton={showSkeleton}
-                showWireframe={showWireframe}
-                pbrConfig={pbrConfig}
-              />
+            <Suspense fallback={<div style={{ color: 'white' }}>加载 3D 场景中...</div>}>
+              <CameraSetup />
+              <Suspense fallback={null}>
+                <group position={[0, groundOffsetY, 0]}>
+                  <CraftScene3D
+                    panels={clipmaskVectors}
+                    craftLayers={markedLayers}
+                    foldProgress={foldProgress}
+                    foldSequence={foldSequence}
+                    rootPanelId={rootPanelId}
+                    drivenMap={drivenMap}
+                    renderMode={cyclesRenderMode as 'realtime' | 'pathtracing' | 'hybrid'}
+                    geometryMode={geometryMode}
+                    showSkeleton={showSkeleton}
+                    showWireframe={showWireframe}
+                    foldEdgeWidth={foldEdgeWidth}
+                    pbrConfig={pbrConfig}
+                  />
+                </group>
+              </Suspense>
             </Suspense>
             <CustomOrbitControls />
           </Canvas>
@@ -767,28 +894,19 @@ export const CyclesRenderPreview: React.FC = () => {
         <div style={styles.sidebar}>
           <SidebarControlPanel
             renderMode={cyclesRenderMode}
-            hdrPreset={cyclesHDRPreset}
             onRenderModeChange={setCyclesRenderMode}
-            onHDRPresetChange={setCyclesHDRPreset}
             panels={clipmaskVectors}
             foldProgress={foldProgress}
             onFoldProgressChange={setFoldProgress}
-            domeHeight={domeHeight}
-            domeRadius={domeRadius}
-            domeScale={domeScale}
-            onDomeHeightChange={setDomeHeight}
-            onDomeRadiusChange={setDomeRadius}
-            onDomeScaleChange={setDomeScale}
+
             geometryMode={geometryMode}
             onGeometryModeChange={setGeometryMode}
             showSkeleton={showSkeleton}
             onShowSkeletonChange={setShowSkeleton}
             showWireframe={showWireframe}
             onShowWireframeChange={setShowWireframe}
-            pbrConfig={pbrConfig}
-            onPbrConfigChange={setPbrConfig}
-            selectedCraftType={selectedCraftType}
-            onSelectedCraftTypeChange={setSelectedCraftType}
+            foldEdgeWidth={foldEdgeWidth}
+            onFoldEdgeWidthChange={setFoldEdgeWidth}
           />
         </div>
       </div>
@@ -798,25 +916,21 @@ export const CyclesRenderPreview: React.FC = () => {
 interface CraftScene3DProps {
   panels: MarkedLayer[];
   craftLayers: MarkedLayer[];
-  hdrPreset: HDRPreset;
   foldProgress: number;
   foldSequence: string[];
   rootPanelId: string | null;
   drivenMap: Record<string, string[]>;
-  domeHeight: number;
-  domeRadius: number;
-  domeScale: number;
   renderMode: 'realtime' | 'pathtracing' | 'hybrid';
   geometryMode: 'nested' | 'skinned';
   showSkeleton: boolean;
   showWireframe: boolean;
+  foldEdgeWidth: number;
   pbrConfig: CraftPBRConfig;
 }
 
-const CraftScene3D: React.FC<CraftScene3DProps> = ({ panels, craftLayers, hdrPreset, foldProgress, foldSequence, rootPanelId, drivenMap, domeHeight, domeRadius, domeScale, renderMode, geometryMode, showSkeleton, showWireframe, pbrConfig }) => {
-  // 🔥 增大缩放比例，让模型在 3D 空间中更大，匹配 HDR 环境球
-  // 原来 0.02 太小，Figma 中 1000px 只变成 20 单位，现在变成 100 单位
-  const scale = 0.1;
+const CraftScene3D: React.FC<CraftScene3DProps> = ({ panels, craftLayers, foldProgress, foldSequence, rootPanelId, drivenMap, renderMode, geometryMode, showSkeleton, showWireframe, foldEdgeWidth, pbrConfig }) => {
+  // 🔥 提升模型缩放，避免相对 HDR 过小导致视角难调
+  const scale = 1.0;
   const thickness = 0.8;
 
   // 渲染模式配置 - 不同模式有不同的渲染质量参数
@@ -871,13 +985,6 @@ const CraftScene3D: React.FC<CraftScene3DProps> = ({ panels, craftLayers, hdrPre
     });
   }, [panels, craftLayers, rootPanelId, drivenMap]);
 
-  // 创建面板ID到面板的映射
-  const panelMap = useMemo(() => {
-    const map = new Map<string, MarkedLayer>();
-    panels.forEach(p => { if (p && p.id) map.set(p.id, p); });
-    return map;
-  }, [panels]);
-
   // 创建面板ID到工艺图层的映射（基于边界重叠）
   const craftLayerMap = useMemo(() => {
     const map = new Map<string, MarkedLayer[]>();
@@ -891,7 +998,7 @@ const CraftScene3D: React.FC<CraftScene3DProps> = ({ panels, craftLayers, hdrPre
         const cb = craft.bounds;
         // 检查边界重叠
         return !(cb.x + cb.width < pb.x || cb.x > pb.x + pb.width ||
-                 cb.y + cb.height < pb.y || cb.y > pb.y + pb.height);
+          cb.y + cb.height < pb.y || cb.y > pb.y + pb.height);
       });
       map.set(panel.id, overlapping);
     });
@@ -937,9 +1044,6 @@ const CraftScene3D: React.FC<CraftScene3DProps> = ({ panels, craftLayers, hdrPre
     pbrConfig,
   });
 
-  // 计算折叠角度 (0-90度)
-  const foldAngle = foldProgress * Math.PI / 2;
-
   // 是否有层级结构
   const hasHierarchy = rootPanelId && Object.keys(drivenMap).length > 0;
 
@@ -959,18 +1063,11 @@ const CraftScene3D: React.FC<CraftScene3DProps> = ({ panels, craftLayers, hdrPre
     return panels.filter(p => p && p.id && !panelsInHierarchy.has(p.id));
   }, [panels, panelsInHierarchy]);
 
+
+
   return (
-    <group>
-      {/* HDR 环境和穹顶地面 - 使用 craft-renderer 组件 */}
-      <HDRDomeGround
-        preset={hdrPreset}
-        intensity={renderConfig.intensity}
-        showBackground={DEFAULT_HDR_DOME.showBackground}
-        groundProjection={DEFAULT_HDR_DOME.groundProjection}
-        domeHeight={domeHeight}
-        domeRadius={domeRadius}
-        domeScale={domeScale}
-      />
+    <group position={[0, 0, 0]}>
+      <SceneEnvironment />
 
       {/* 渲染模式特定的补光 */}
       <ambientLight intensity={renderConfig.ambientIntensity} />
@@ -985,66 +1082,71 @@ const CraftScene3D: React.FC<CraftScene3DProps> = ({ panels, craftLayers, hdrPre
       )}
 
       {/* 使用嵌套 Group 方案实现折叠 */}
-      {hasHierarchy ? (
-        <>
-          {geometryMode === 'skinned' ? (
-            <SkinnedMeshBridge
-              panels={panels}
-              drivenMap={drivenMap}
-              rootPanelId={rootPanelId}
-              foldProgress={foldProgress}
-              foldSequence={foldSequence}
-              scale={scale}
-              thickness={thickness}
-              offsetX={bounds.minX}
-              offsetY={bounds.minY}
-              centerX={bounds.centerX}
-              centerY={bounds.centerY}
-              craftLayers={craftLayers}
-              renderConfig={renderConfig}
-              showSkeleton={showSkeleton}
-              showWireframe={showWireframe}
-              pbrConfig={pbrConfig}
-            />
-          ) : (
-            <NestedGroupFold
-              panels={panels}
-              drivenMap={drivenMap}
-              rootPanelId={rootPanelId}
-              foldProgress={foldProgress}
-              sequence={foldSequence}
-              scale={scale}
-              thickness={thickness}
-              offsetX={bounds.minX}
-              offsetY={bounds.minY}
-              centerX={bounds.centerX}
-              centerY={bounds.centerY}
-              craftLayers={craftLayers}
-              renderConfig={renderConfig}
-              pbrMaps={pbrMaps}
-            />
-          )}
-          {/* 渲染不在层级中的独立面板 */}
-          {orphanPanels.map((panel) => (
-            <OrphanPanelMesh
-              key={panel.id}
-              panel={panel}
-              craftLayers={craftLayerMap.get(panel.id) || []}
-              thickness={thickness}
-              scale={scale}
-              offsetX={bounds.minX}
-              offsetY={bounds.minY}
-              centerX={bounds.centerX}
-              centerY={bounds.centerY}
-              renderConfig={renderConfig}
-            />
-          ))}
-        </>
-      ) : (
-        panels.map((panel, index) => (
-          <CraftAnnotationMesh key={panel.id} layer={panel} index={index} />
-        ))
-      )}
+      <Center>
+        {hasHierarchy ? (
+          <>
+            {geometryMode === 'skinned' ? (
+              <group position={[0, 0, 0]} frustumCulled={false}>
+                <SkinnedMeshBridge
+                  panels={panels}
+                  drivenMap={drivenMap}
+                  rootPanelId={rootPanelId}
+                  foldProgress={foldProgress}
+                  foldSequence={foldSequence}
+                  jointWidth={foldEdgeWidth}
+                  scale={scale}
+                  thickness={thickness}
+                  offsetX={0}
+                  offsetY={0}
+                  centerX={0}
+                  centerY={0}
+                  craftLayers={craftLayers}
+                  renderConfig={renderConfig}
+                  showSkeleton={showSkeleton}
+                  showWireframe={showWireframe}
+                  pbrConfig={pbrConfig}
+                />
+              </group>
+            ) : (
+              <group position={[0, 0, 0]} frustumCulled={false}>
+                <NestedGroupFold
+                  panels={panels}
+                  drivenMap={drivenMap}
+                  rootPanelId={rootPanelId}
+                  foldProgress={foldProgress}
+                  sequence={foldSequence}
+                  scale={scale}
+                  thickness={thickness}
+                  offsetX={bounds.minX}
+                  offsetY={bounds.minY}
+                  centerX={bounds.minX}
+                  centerY={bounds.minY}
+                  craftLayers={craftLayers}
+                  renderConfig={renderConfig}
+                  pbrMaps={pbrMaps}
+                />
+              </group>
+            )}
+            {/* 渲染不在层级中的独立面板 */}
+            {orphanPanels.map((panel) => (
+              <OrphanPanelMesh
+                key={panel.id}
+                panel={panel}
+                craftLayers={craftLayerMap.get(panel.id) || []}
+                thickness={thickness}
+                scale={scale}
+                offsetX={bounds.minX}
+                offsetY={bounds.minY}
+                renderConfig={renderConfig}
+              />
+            ))}
+          </>
+        ) : (
+          panels.map((panel, index) => (
+            <CraftAnnotationMesh key={panel.id} layer={panel} index={index} />
+          ))
+        )}
+      </Center>
     </group>
   );
 };
@@ -1052,56 +1154,37 @@ const CraftScene3D: React.FC<CraftScene3DProps> = ({ panels, craftLayers, hdrPre
 // 控制面板组件
 interface ControlPanelProps {
   renderMode: string;
-  hdrPreset: string;
   onRenderModeChange: (mode: 'realtime' | 'pathtracing' | 'hybrid') => void;
-  onHDRPresetChange: (preset: string) => void;
   panels: MarkedLayer[];
   foldProgress: number;
   onFoldProgressChange: (progress: number) => void;
-  domeHeight: number;
-  domeRadius: number;
-  domeScale: number;
-  onDomeHeightChange: (height: number) => void;
-  onDomeRadiusChange: (radius: number) => void;
-  onDomeScaleChange: (scale: number) => void;
   geometryMode: 'nested' | 'skinned';
   onGeometryModeChange: (mode: 'nested' | 'skinned') => void;
   showSkeleton: boolean;
   onShowSkeletonChange: (show: boolean) => void;
   showWireframe: boolean;
   onShowWireframeChange: (show: boolean) => void;
-  // PBR 参数
-  pbrConfig: CraftPBRConfig;
-  onPbrConfigChange: (config: CraftPBRConfig) => void;
-  selectedCraftType: CraftTypeId;
-  onSelectedCraftTypeChange: (type: CraftTypeId) => void;
+  foldEdgeWidth: number;
+  onFoldEdgeWidthChange: (width: number) => void;
 }
 
 const SidebarControlPanel: React.FC<ControlPanelProps> = ({
   renderMode,
-  hdrPreset,
   onRenderModeChange,
-  onHDRPresetChange,
   panels,
   foldProgress,
   onFoldProgressChange,
-  domeHeight,
-  domeRadius,
-  domeScale,
-  onDomeHeightChange,
-  onDomeRadiusChange,
-  onDomeScaleChange,
   geometryMode,
   onGeometryModeChange,
   showSkeleton,
   onShowSkeletonChange,
   showWireframe,
   onShowWireframeChange,
-  pbrConfig,
-  onPbrConfigChange,
-  selectedCraftType,
-  onSelectedCraftTypeChange,
+  foldEdgeWidth,
+  onFoldEdgeWidthChange,
 }) => {
+  const [tab, setTab] = React.useState<'settings' | 'hdr' | 'layers'>('settings');
+
   return (
     <div>
       <h4 style={{
@@ -1113,66 +1196,193 @@ const SidebarControlPanel: React.FC<ControlPanelProps> = ({
         渲染控制
       </h4>
 
-      {/* 渲染模式 */}
-      <div style={controlStyles.section}>
-        <label style={controlStyles.label}>渲染模式</label>
-        <select
-          style={controlStyles.select}
-          value={renderMode}
-          onChange={(e) => onRenderModeChange(e.target.value as any)}
-        >
-          {RENDER_MODES.map((m) => (
-            <option key={m.value} value={m.value}>{m.label}</option>
-          ))}
-        </select>
+      <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+        {(['settings', 'hdr', 'layers'] as const).map((key) => (
+          <button
+            key={key}
+            onClick={() => setTab(key)}
+            style={{
+              flex: 1,
+              padding: '8px 10px',
+              borderRadius: 8,
+              border: `1px solid ${tab === key ? SEMANTIC_TOKENS.color.border.default : SEMANTIC_TOKENS.color.border.weak}`,
+              background: tab === key ? SEMANTIC_TOKENS.color.bg.interactive.default : SEMANTIC_TOKENS.color.bg.secondary,
+              color: SEMANTIC_TOKENS.color.text.primary,
+              fontSize: '12px',
+              cursor: 'pointer',
+            }}
+          >
+            {key === 'settings' ? '设置' : key === 'hdr' ? 'HDR' : '图层'}
+          </button>
+        ))}
       </div>
 
-      {/* 几何体模式 */}
-      <div style={controlStyles.section}>
-        <label style={controlStyles.label}>几何体模式</label>
-        <select
-          style={controlStyles.select}
-          value={geometryMode}
-          onChange={(e) => onGeometryModeChange(e.target.value as 'nested' | 'skinned')}
-        >
-          {GEOMETRY_MODES.map((m) => (
-            <option key={m.value} value={m.value}>{m.label}</option>
-          ))}
-        </select>
-      </div>
+      {tab === 'settings' && (
+        <>
+          {/* 渲染模式 */}
+          <div style={controlStyles.section}>
+            <label style={controlStyles.label}>渲染模式</label>
+            <select
+              style={controlStyles.select}
+              value={renderMode}
+              onChange={(e) => onRenderModeChange(e.target.value as any)}
+            >
+              {RENDER_MODES.map((m) => (
+                <option key={m.value} value={m.value}>{m.label}</option>
+              ))}
+            </select>
+          </div>
 
-      {/* SkinnedMesh 调试选项 */}
-      {geometryMode === 'skinned' && (
+          {/* 几何体模式 */}
+          <div style={controlStyles.section}>
+            <label style={controlStyles.label}>几何体模式</label>
+            <select
+              style={controlStyles.select}
+              value={geometryMode}
+              onChange={(e) => onGeometryModeChange(e.target.value as 'nested' | 'skinned')}
+            >
+              {GEOMETRY_MODES.map((m) => (
+                <option key={m.value} value={m.value}>{m.label}</option>
+              ))}
+            </select>
+          </div>
+
+          {/* SkinnedMesh 调试选项 */}
+          {geometryMode === 'skinned' && (
+            <div style={controlStyles.section}>
+              <label style={controlStyles.label}>调试选项</label>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', color: SEMANTIC_TOKENS.color.text.primary }}>
+                  <input
+                    type="checkbox"
+                    checked={showSkeleton}
+                    onChange={(e) => onShowSkeletonChange(e.target.checked)}
+                  />
+                  显示骨骼
+                </label>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', color: SEMANTIC_TOKENS.color.text.primary }}>
+                  <input
+                    type="checkbox"
+                    checked={showWireframe}
+                    onChange={(e) => onShowWireframeChange(e.target.checked)}
+                  />
+                  显示线框
+                </label>
+              </div>
+            </div>
+          )}
+
+          {/* 折叠边宽度 */}
+          <div style={controlStyles.section}>
+            <label style={controlStyles.label}>折叠边宽度</label>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <input
+                type="range"
+                min="0"
+                max="20"
+                step="1"
+                value={foldEdgeWidth}
+                onChange={(e) => onFoldEdgeWidthChange(Number(e.target.value))}
+                style={{ flex: 1, cursor: 'pointer' }}
+              />
+              <span style={{ fontSize: '12px', color: SEMANTIC_TOKENS.color.text.primary, minWidth: '40px' }}>
+                {foldEdgeWidth}
+              </span>
+            </div>
+            {geometryMode !== 'skinned' && (
+              <div style={{ fontSize: '11px', color: SEMANTIC_TOKENS.color.text.tertiary, marginTop: '6px' }}>
+                仅 SkinnedMesh 模式生效
+              </div>
+            )}
+          </div>
+
+          {/* 折叠进度 */}
+          <div style={controlStyles.section}>
+            <label style={controlStyles.label}>折叠进度</label>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <input
+                type="range"
+                min="0"
+                max="100"
+                value={foldProgress * 100}
+                onChange={(e) => onFoldProgressChange(Number(e.target.value) / 100)}
+                style={{ flex: 1, cursor: 'pointer' }}
+              />
+              <span style={{ fontSize: '12px', color: SEMANTIC_TOKENS.color.text.primary, minWidth: '40px' }}>
+                {Math.round(foldProgress * 100)}%
+              </span>
+            </div>
+          </div>
+        </>
+      )}
+
+      {tab === 'hdr' && (
+        <HDRSettingsInline />
+      )}
+
+      {tab === 'layers' && (
         <div style={controlStyles.section}>
-          <label style={controlStyles.label}>调试选项</label>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', color: SEMANTIC_TOKENS.color.text.primary }}>
-              <input
-                type="checkbox"
-                checked={showSkeleton}
-                onChange={(e) => onShowSkeletonChange(e.target.checked)}
-              />
-              显示骨骼
-            </label>
-            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', color: SEMANTIC_TOKENS.color.text.primary }}>
-              <input
-                type="checkbox"
-                checked={showWireframe}
-                onChange={(e) => onShowWireframeChange(e.target.checked)}
-              />
-              显示线框
-            </label>
+          <label style={controlStyles.label}>
+            刀版图面板 ({panels.length})
+          </label>
+          <div style={{ maxHeight: '200px', overflowY: 'auto' }}>
+            {panels.map((layer) => (
+              <CraftLayerItem key={layer.id} layer={layer} />
+            ))}
+            {panels.length === 0 && (
+              <div style={{
+                fontSize: '11px',
+                color: SEMANTIC_TOKENS.color.text.tertiary,
+                padding: '8px 0'
+              }}>
+                暂无刀版图面板
+              </div>
+            )}
           </div>
         </div>
       )}
+    </div>
+  );
+};
 
-      {/* HDR 环境 */}
-      <div style={controlStyles.section}>
-        <label style={controlStyles.label}>HDR 环境</label>
+const hdrSectionStyles = {
+  section: { marginBottom: '16px' },
+  labelRow: { display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: '#ccc', marginBottom: '6px' },
+  select: {
+    width: '100%',
+    padding: '8px 10px',
+    borderRadius: '6px',
+    border: '1px solid #444',
+    background: '#111',
+    color: '#fff',
+    fontSize: '12px',
+  },
+};
+
+const HDRSettingsInline: React.FC = () => {
+  const envPreset = useWebGPUStore((s) => s.envPreset);
+  const setEnvPreset = useWebGPUStore((s) => s.setEnvPreset);
+  const hdrLoaded = useWebGPUStore((s) => s.hdrLoaded);
+  const hdrName = useWebGPUStore((s) => s.hdrName);
+  const hdr = use3DStore((s) => s.hdr);
+  const setHDR = use3DStore((s) => s.setHDR);
+  const backgroundMode = use3DStore((s) => s.background.mode);
+  const background = use3DStore((s) => s.background);
+  const setBackground = use3DStore((s) => s.setBackground);
+  const ground = use3DStore((s) => s.ground);
+  const setGround = use3DStore((s) => s.setGround);
+
+  return (
+    <div>
+      <div style={{ ...hdrSectionStyles.section }}>
+        <div style={hdrSectionStyles.labelRow}>
+          <span>预设环境</span>
+          <span style={{ color: '#6ee7b7' }}>{hdrLoaded ? (hdrName || 'HDR 已加载') : ''}</span>
+        </div>
         <select
-          style={controlStyles.select}
-          value={hdrPreset}
-          onChange={(e) => onHDRPresetChange(e.target.value)}
+          style={hdrSectionStyles.select}
+          value={envPreset}
+          onChange={(e) => setEnvPreset(e.target.value)}
         >
           {HDR_PRESETS.map((p) => (
             <option key={p.value} value={p.value}>{p.label}</option>
@@ -1180,286 +1390,229 @@ const SidebarControlPanel: React.FC<ControlPanelProps> = ({
         </select>
       </div>
 
-      {/* 相机高度 (height) */}
-      <div style={controlStyles.section}>
-        <label style={controlStyles.label}>相机高度</label>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+      <div style={{ ...hdrSectionStyles.section, marginTop: 8 }}>
+        <div style={{ fontSize: '12px', color: '#bbb', marginBottom: 6 }}>上传 HDR/EXR</div>
+        <HDRUploaderCompact />
+        {!hdrLoaded && (
+          <div style={{ fontSize: '11px', color: '#888', marginTop: 4 }}>
+            未加载 HDR 时，穹顶投影不会显示。
+          </div>
+        )}
+      </div>
+
+      <div style={{ ...hdrSectionStyles.section, borderTop: '1px solid #222', paddingTop: 12 }}>
+        <div style={{ fontSize: '12px', color: '#bbb', marginBottom: 8 }}>PolyDome</div>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '12px', color: '#eee', marginBottom: 6 }}>
           <input
-            type="range"
-            min="5"
-            max="500"
-            step="5"
-            value={domeHeight}
-            onChange={(e) => onDomeHeightChange(Number(e.target.value))}
-            style={{ flex: 1, cursor: 'pointer' }}
-          />
-          <span style={{ fontSize: '12px', color: SEMANTIC_TOKENS.color.text.primary, minWidth: '40px' }}>
-            {domeHeight}
-          </span>
-        </div>
-      </div>
-
-      {/* 世界半径 (radius) */}
-      <div style={controlStyles.section}>
-        <label style={controlStyles.label}>世界半径</label>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <input
-            type="range"
-            min="60"
-            max="5000"
-            step="50"
-            value={domeRadius}
-            onChange={(e) => onDomeRadiusChange(Number(e.target.value))}
-            style={{ flex: 1, cursor: 'pointer' }}
-          />
-          <span style={{ fontSize: '12px', color: SEMANTIC_TOKENS.color.text.primary, minWidth: '40px' }}>
-            {domeRadius}
-          </span>
-        </div>
-      </div>
-
-      {/* 球体大小 (scale) */}
-      <div style={controlStyles.section}>
-        <label style={controlStyles.label}>球体大小</label>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <input
-            type="range"
-            min="1000"
-            max="50000"
-            step="1000"
-            value={domeScale}
-            onChange={(e) => onDomeScaleChange(Number(e.target.value))}
-            style={{ flex: 1, cursor: 'pointer' }}
-          />
-          <span style={{ fontSize: '12px', color: SEMANTIC_TOKENS.color.text.primary, minWidth: '40px' }}>
-            {domeScale}
-          </span>
-        </div>
-      </div>
-
-      {/* 折叠进度 */}
-      <div style={controlStyles.section}>
-        <label style={controlStyles.label}>折叠进度</label>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <input
-            type="range"
-            min="0"
-            max="100"
-            value={foldProgress * 100}
-            onChange={(e) => onFoldProgressChange(Number(e.target.value) / 100)}
-            style={{ flex: 1, cursor: 'pointer' }}
-          />
-          <span style={{ fontSize: '12px', color: SEMANTIC_TOKENS.color.text.primary, minWidth: '40px' }}>
-            {Math.round(foldProgress * 100)}%
-          </span>
-        </div>
-      </div>
-
-      {/* PBR 工艺参数调节 */}
-      <PBRCraftParamPanel
-        pbrConfig={pbrConfig}
-        onPbrConfigChange={onPbrConfigChange}
-        selectedCraftType={selectedCraftType}
-        onSelectedCraftTypeChange={onSelectedCraftTypeChange}
-      />
-
-      {/* 刀版图面板列表 */}
-      <div style={controlStyles.section}>
-        <label style={controlStyles.label}>
-          刀版图面板 ({panels.length})
-        </label>
-        <div style={{ maxHeight: '200px', overflowY: 'auto' }}>
-          {panels.map((layer) => (
-            <CraftLayerItem key={layer.id} layer={layer} />
-          ))}
-          {panels.length === 0 && (
-            <div style={{
-              fontSize: '11px',
-              color: SEMANTIC_TOKENS.color.text.tertiary,
-              padding: '8px 0'
-            }}>
-              暂无刀版图面板
-            </div>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-};
-
-// 工艺类型配置
-const CRAFT_TYPE_OPTIONS: { id: CraftTypeId; label: string; color: string }[] = [
-  { id: 'hotfoil', label: '烫金', color: '#d4af37' },
-  { id: 'silver', label: '烫银', color: '#c0c0c0' },
-  { id: 'uv', label: 'UV光油', color: '#00ff88' },
-];
-
-// PBR 工艺参数调节面板
-interface PBRCraftParamPanelProps {
-  pbrConfig: CraftPBRConfig;
-  onPbrConfigChange: (config: CraftPBRConfig) => void;
-  selectedCraftType: CraftTypeId;
-  onSelectedCraftTypeChange: (type: CraftTypeId) => void;
-}
-
-const PBRCraftParamPanel: React.FC<PBRCraftParamPanelProps> = ({
-  pbrConfig,
-  onPbrConfigChange,
-  selectedCraftType,
-  onSelectedCraftTypeChange,
-}) => {
-  const currentParams = pbrConfig[selectedCraftType];
-
-  const updateParam = (key: keyof typeof currentParams, value: number) => {
-    console.log(`🎛️ PBR参数更新: ${selectedCraftType}.${key} = ${value}`);
-    const newConfig = {
-      ...pbrConfig,
-      [selectedCraftType]: {
-        ...currentParams,
-        [key]: value,
-      },
-    };
-    console.log('🎛️ 新的 pbrConfig:', JSON.stringify(newConfig, null, 2));
-    onPbrConfigChange(newConfig);
-  };
-
-  const resetToDefault = () => {
-    onPbrConfigChange({
-      ...pbrConfig,
-      [selectedCraftType]: DEFAULT_CRAFT_PBR_CONFIG[selectedCraftType],
-    });
-  };
-
-  return (
-    <div style={controlStyles.section}>
-      <label style={controlStyles.label}>PBR 工艺参数</label>
-
-      {/* 工艺类型切换按钮 */}
-      <div style={{ display: 'flex', gap: '4px', marginBottom: '12px' }}>
-        {CRAFT_TYPE_OPTIONS.map((opt) => (
-          <button
-            key={opt.id}
-            onClick={() => onSelectedCraftTypeChange(opt.id)}
-            style={{
-              flex: 1,
-              padding: '6px 8px',
-              fontSize: '11px',
-              fontWeight: selectedCraftType === opt.id ? 600 : 400,
-              borderRadius: '4px',
-              border: selectedCraftType === opt.id
-                ? `2px solid ${opt.color}`
-                : `1px solid ${SEMANTIC_TOKENS.color.border.default}`,
-              background: selectedCraftType === opt.id
-                ? `${opt.color}20`
-                : SEMANTIC_TOKENS.color.bg.secondary,
-              color: selectedCraftType === opt.id
-                ? opt.color
-                : SEMANTIC_TOKENS.color.text.primary,
-              cursor: 'pointer',
-              transition: 'all 0.15s ease',
+            type="checkbox"
+            checked={hdr.groundProjection}
+            onChange={(e) => {
+              const checked = e.target.checked;
+              setHDR({ groundProjection: checked });
+              if (checked) setBackground({ mode: 'hdr' });
             }}
-          >
-            <span style={{
-              display: 'inline-block',
-              width: '6px',
-              height: '6px',
-              borderRadius: '50%',
-              backgroundColor: opt.color,
-              marginRight: '4px',
-            }} />
-            {opt.label}
-          </button>
-        ))}
+          />
+          启用穹顶投影
+        </label>
+
+        <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '12px', color: '#eee', marginBottom: 6 }}>
+          <input
+            type="checkbox"
+            checked={hdr.showBackground}
+            onChange={(e) => {
+              const checked = e.target.checked;
+              setHDR({ showBackground: checked });
+              if (checked) setBackground({ mode: 'hdr' });
+            }}
+          />
+          显示 HDR 背景
+        </label>
+
+        <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '12px', color: '#eee', marginBottom: 6 }}>
+          <input
+            type="checkbox"
+            checked={hdr.useForLighting}
+            onChange={(e) => setHDR({ useForLighting: e.target.checked })}
+          />
+          使用 HDR 作为光照
+        </label>
+
+        <div style={{ marginTop: 8 }}>
+          <div style={hdrSectionStyles.labelRow}>
+            <span>光照强度</span>
+            <span style={{ color: '#6ee7b7' }}>{hdr.intensity.toFixed(2)}</span>
+          </div>
+          <input
+            className="w-full"
+            type="range"
+            min={0}
+            max={3}
+            step={0.01}
+            value={hdr.intensity}
+            onChange={(e) => setHDR({ intensity: parseFloat(e.target.value) })}
+          />
+        </div>
+
+        {hdr.groundProjection && (
+          <>
+            <div style={{ marginTop: 10 }}>
+              <div style={hdrSectionStyles.labelRow}>
+                <span>穹顶高度</span>
+                <span style={{ color: '#6ee7b7' }}>{hdr.domeHeight.toFixed(0)}</span>
+              </div>
+              <input
+                className="w-full"
+                type="range"
+                min={10}
+                max={3000}
+                step={10}
+                value={hdr.domeHeight}
+                onChange={(e) => setHDR({ domeHeight: parseFloat(e.target.value) })}
+              />
+            </div>
+
+            <div style={{ marginTop: 10 }}>
+              <div style={hdrSectionStyles.labelRow}>
+                <span>穹顶半径</span>
+                <span style={{ color: '#6ee7b7' }}>{hdr.domeRadius.toFixed(0)}</span>
+              </div>
+              <input
+                className="w-full"
+                type="range"
+                min={1000}
+                max={50000}
+                step={100}
+                value={hdr.domeRadius}
+                onChange={(e) => setHDR({ domeRadius: parseFloat(e.target.value) })}
+              />
+            </div>
+          </>
+        )}
       </div>
 
-      {/* 参数滑块 */}
-      <PBRSlider
-        label="金属度"
-        value={currentParams.metalness}
-        min={0}
-        max={1}
-        step={0.01}
-        onChange={(v) => updateParam('metalness', v)}
-      />
-      <PBRSlider
-        label="粗糙度"
-        value={currentParams.roughness}
-        min={0}
-        max={1}
-        step={0.01}
-        onChange={(v) => updateParam('roughness', v)}
-      />
-      <PBRSlider
-        label="清漆强度"
-        value={currentParams.clearcoat}
-        min={0}
-        max={1}
-        step={0.01}
-        onChange={(v) => updateParam('clearcoat', v)}
-      />
-      <PBRSlider
-        label="清漆粗糙度"
-        value={currentParams.clearcoatRoughness}
-        min={0}
-        max={1}
-        step={0.01}
-        onChange={(v) => updateParam('clearcoatRoughness', v)}
-      />
+      <div style={{ ...hdrSectionStyles.section, borderTop: '1px solid #222', paddingTop: 12 }}>
+        <div style={{ fontSize: '12px', color: '#bbb', marginBottom: 8 }}>背景模式</div>
+        <div style={{ display: 'flex', gap: 6 }}>
+          {(['solid', 'gradient', 'hdr'] as const).map((mode) => (
+            <button
+              key={mode}
+              style={{
+                flex: 1,
+                padding: '6px 8px',
+                borderRadius: 6,
+                border: `1px solid ${backgroundMode === mode ? '#6ee7b7' : '#444'}`,
+                background: backgroundMode === mode ? '#0f172a' : '#111',
+                color: '#fff',
+                fontSize: '12px',
+                cursor: 'pointer',
+              }}
+              onClick={() => setBackground({ mode })}
+            >
+              {mode === 'solid' ? '纯色' : mode === 'gradient' ? '渐变' : 'HDR'}
+            </button>
+          ))}
+        </div>
 
-      {/* 重置按钮 */}
-      <button
-        onClick={resetToDefault}
-        style={{
-          width: '100%',
-          padding: '6px',
-          marginTop: '8px',
-          fontSize: '11px',
-          borderRadius: '4px',
-          border: `1px solid ${SEMANTIC_TOKENS.color.border.default}`,
-          background: SEMANTIC_TOKENS.color.bg.secondary,
-          color: SEMANTIC_TOKENS.color.text.secondary,
-          cursor: 'pointer',
-        }}
-      >
-        重置为默认值
-      </button>
+        {backgroundMode === 'solid' && (
+          <div style={{ marginTop: 10 }}>
+            <div style={hdrSectionStyles.labelRow}>
+              <span>纯色背景</span>
+              <span style={{ color: background.solidColor }}>{background.solidColor}</span>
+            </div>
+            <input
+              className="w-full"
+              type="color"
+              value={background.solidColor}
+              onChange={(e) => setBackground({ solidColor: e.target.value })}
+            />
+          </div>
+        )}
+
+        {backgroundMode === 'gradient' && (
+          <div style={{ marginTop: 10 }}>
+            <div style={hdrSectionStyles.labelRow}>
+              <span>顶部</span>
+              <span style={{ color: background.gradientTop }}>{background.gradientTop}</span>
+            </div>
+            <input
+              className="w-full"
+              type="color"
+              value={background.gradientTop}
+              onChange={(e) => setBackground({ gradientTop: e.target.value })}
+            />
+            <div style={{ ...hdrSectionStyles.labelRow, marginTop: 6 }}>
+              <span>底部</span>
+              <span style={{ color: background.gradientBottom }}>{background.gradientBottom}</span>
+            </div>
+            <input
+              className="w-full"
+              type="color"
+              value={background.gradientBottom}
+              onChange={(e) => setBackground({ gradientBottom: e.target.value })}
+            />
+          </div>
+        )}
+      </div>
+
+      <div style={{ ...hdrSectionStyles.section, borderTop: '1px solid #222', paddingTop: 12 }}>
+        <div style={{ fontSize: '12px', color: '#bbb', marginBottom: 8 }}>Ground</div>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '12px', color: '#eee' }}>
+          <input
+            type="checkbox"
+            checked={ground.visible}
+            onChange={(e) => setGround({ visible: e.target.checked })}
+          />
+          显示地面
+        </label>
+        <div style={{ marginTop: 8 }}>
+          <div style={hdrSectionStyles.labelRow}>
+            <span>地面高度 (贴地)</span>
+            <span style={{ color: '#6ee7b7' }}>{ground.offsetY?.toFixed(0) ?? 0}</span>
+          </div>
+          <input
+            className="w-full"
+            type="range"
+            min={-200}
+            max={200}
+            step={1}
+            value={ground.offsetY ?? 0}
+            onChange={(e) => setGround({ offsetY: Number(e.target.value) })}
+          />
+        </div>
+        <div style={{ marginTop: 8 }}>
+          <div style={hdrSectionStyles.labelRow}>
+            <span>地面反射</span>
+            <span style={{ color: '#6ee7b7' }}>{ground.reflectivity.toFixed(2)}</span>
+          </div>
+          <input
+            className="w-full"
+            type="range"
+            min={0}
+            max={1}
+            step={0.01}
+            value={ground.reflectivity}
+            onChange={(e) => setGround({ reflectivity: Number(e.target.value) })}
+          />
+        </div>
+        <div style={{ marginTop: 8 }}>
+          <div style={hdrSectionStyles.labelRow}>
+            <span>地面不透明度</span>
+            <span style={{ color: '#6ee7b7' }}>{ground.opacity.toFixed(2)}</span>
+          </div>
+          <input
+            className="w-full"
+            type="range"
+            min={0}
+            max={1}
+            step={0.01}
+            value={ground.opacity}
+            onChange={(e) => setGround({ opacity: Number(e.target.value) })}
+          />
+        </div>
+      </div>
     </div>
   );
 };
-
-// PBR 参数滑块组件
-interface PBRSliderProps {
-  label: string;
-  value: number;
-  min: number;
-  max: number;
-  step: number;
-  onChange: (value: number) => void;
-}
-
-const PBRSlider: React.FC<PBRSliderProps> = ({ label, value, min, max, step, onChange }) => (
-  <div style={{ marginBottom: '8px' }}>
-    <div style={{
-      display: 'flex',
-      justifyContent: 'space-between',
-      marginBottom: '4px',
-      fontSize: '11px',
-      color: SEMANTIC_TOKENS.color.text.secondary,
-    }}>
-      <span>{label}</span>
-      <span>{value.toFixed(2)}</span>
-    </div>
-    <input
-      type="range"
-      min={min}
-      max={max}
-      step={step}
-      value={value}
-      onChange={(e) => onChange(Number(e.target.value))}
-      style={{ width: '100%', cursor: 'pointer' }}
-    />
-  </div>
-);
 
 // 工艺图层项组件
 const CraftLayerItem: React.FC<{ layer: MarkedLayer }> = ({ layer }) => {
@@ -1481,8 +1634,8 @@ const CraftLayerItem: React.FC<{ layer: MarkedLayer }> = ({ layer }) => {
         height: '8px',
         borderRadius: '50%',
         backgroundColor: craftType === '烫金' ? '#d4af37' :
-                        craftType === '烫银' ? '#c0c0c0' :
-                        craftType === 'UV' ? '#00ff88' : '#888',
+          craftType === '烫银' ? '#c0c0c0' :
+            craftType === 'UV' ? '#00ff88' : '#888',
       }} />
       <span style={{
         flex: 1,
@@ -1499,3 +1652,5 @@ const CraftLayerItem: React.FC<{ layer: MarkedLayer }> = ({ layer }) => {
     </div>
   );
 };
+
+

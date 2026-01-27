@@ -1,6 +1,6 @@
 import React from 'react';
 import { createPortal } from 'react-dom';
-import { useWebGPUStore, use3DStore } from '@genki/shared-stores';
+import { use3DStore, useWebGPUStore } from '@genki/shared-stores';
 import { HDRUploaderCompact } from './HDRUploaderCompact';
 
 interface HDRPanelProps {
@@ -15,7 +15,10 @@ export const HDRPanel: React.FC<HDRPanelProps> = ({ onClose }) => {
   const hdr = use3DStore((s) => s.hdr);
   const setHDR = use3DStore((s) => s.setHDR);
   const backgroundMode = use3DStore((s) => s.background.mode);
+  const background = use3DStore((s) => s.background);
   const setBackground = use3DStore((s) => s.setBackground);
+  const ground = use3DStore((s) => s.ground);
+  const setGround = use3DStore((s) => s.setGround);
 
   const panel = (
     <div
@@ -179,6 +182,126 @@ export const HDRPanel: React.FC<HDRPanelProps> = ({ onClose }) => {
               </button>
             ))}
           </div>
+        </div>
+
+        {backgroundMode === 'solid' && (
+          <div className="mt-3">
+            <div className="flex items-center justify-between text-xs text-gray-400 mb-2">
+              <span>纯色背景</span>
+              <span className="font-mono" style={{ color: background.solidColor }}>{background.solidColor}</span>
+            </div>
+            <input
+              className="w-full"
+              type="color"
+              value={background.solidColor}
+              onChange={(e) => setBackground({ solidColor: e.target.value })}
+            />
+          </div>
+        )}
+
+        {backgroundMode === 'gradient' && (
+          <div className="mt-3">
+            <div className="text-xs text-gray-400 mb-2">渐变背景</div>
+            <div className="flex items-center justify-between text-xs text-gray-400">
+              <span>顶部</span>
+              <span className="font-mono" style={{ color: background.gradientTop }}>{background.gradientTop}</span>
+            </div>
+            <input
+              className="w-full"
+              type="color"
+              value={background.gradientTop}
+              onChange={(e) => setBackground({ gradientTop: e.target.value })}
+            />
+
+            <div className="mt-2 flex items-center justify-between text-xs text-gray-400">
+              <span>底部</span>
+              <span className="font-mono" style={{ color: background.gradientBottom }}>{background.gradientBottom}</span>
+            </div>
+            <input
+              className="w-full"
+              type="color"
+              value={background.gradientBottom}
+              onChange={(e) => setBackground({ gradientBottom: e.target.value })}
+            />
+          </div>
+        )}
+
+        <div className="mt-4 border-t border-gray-800 pt-4">
+          <div className="text-xs font-semibold uppercase text-gray-400 mb-2">Ground</div>
+
+          <label className="flex items-center gap-2 text-xs text-gray-200">
+            <input
+              type="checkbox"
+              checked={ground.visible}
+              onChange={(e) => setGround({ visible: e.target.checked })}
+            />
+            显示地面
+          </label>
+
+          {ground.visible && (
+            <>
+              <div className="mt-3">
+                <div className="flex items-center justify-between text-xs text-gray-400 mb-2">
+                  <span>地面颜色</span>
+                  <span className="font-mono" style={{ color: ground.color }}>{ground.color}</span>
+                </div>
+                <input
+                  className="w-full"
+                  type="color"
+                  value={ground.color}
+                  onChange={(e) => setGround({ color: e.target.value })}
+                />
+              </div>
+
+              <div className="mt-3">
+                <div className="flex justify-between text-xs text-gray-400">
+                  <span>反射强度</span>
+                  <span className="text-indigo-300 font-mono">{ground.reflectivity.toFixed(2)}</span>
+                </div>
+                <input
+                  className="w-full"
+                  type="range"
+                  min={0}
+                  max={1}
+                  step={0.01}
+                  value={ground.reflectivity}
+                  onChange={(e) => setGround({ reflectivity: parseFloat(e.target.value) })}
+                />
+              </div>
+
+              <div className="mt-3">
+                <div className="flex justify-between text-xs text-gray-400">
+                  <span>不透明度</span>
+                  <span className="text-indigo-300 font-mono">{ground.opacity.toFixed(2)}</span>
+                </div>
+                <input
+                  className="w-full"
+                  type="range"
+                  min={0}
+                  max={1}
+                  step={0.01}
+                  value={ground.opacity}
+                  onChange={(e) => setGround({ opacity: parseFloat(e.target.value) })}
+                />
+              </div>
+
+              <div className="mt-3">
+                <div className="flex justify-between text-xs text-gray-400">
+                  <span>Y 偏移</span>
+                  <span className="text-indigo-300 font-mono">{ground.offsetY.toFixed(0)}</span>
+                </div>
+                <input
+                  className="w-full"
+                  type="range"
+                  min={-500}
+                  max={500}
+                  step={1}
+                  value={ground.offsetY}
+                  onChange={(e) => setGround({ offsetY: parseFloat(e.target.value) })}
+                />
+              </div>
+            </>
+          )}
         </div>
       </div>
       </div>

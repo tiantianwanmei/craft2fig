@@ -4,95 +4,196 @@
  */
 
 import React, { Suspense, useMemo, useRef, useEffect, useState } from 'react';
-import { Canvas, useThree, useFrame } from '@react-three/fiber';
+import { Canvas, useFrame, useThree } from '@react-three/fiber';
+import { ContactShadows, OrbitControls, PerspectiveCamera } from '@react-three/drei';
 import { useShallow } from 'zustand/react/shallow';
 import { useAppStore } from '../../store';
 import { COMPONENT_TOKENS, SEMANTIC_TOKENS } from '@genki/shared-theme';
 import * as THREE from 'three';
+import type { OrbitControls as OrbitControlsImpl } from 'three-stdlib';
 import { RecursiveFoldingBox } from './RecursiveFoldingBox';
 import { SkinnedMeshView } from './SkinnedMeshView';
+import { ParametricControls } from '../ui/ParametricControls';
+import { use3DStore, useWebGPUStore } from '@genki/shared-stores';
+import { GroundProjectedEnv } from './GroundProjectedEnv';
+import { InfiniteGround } from './InfiniteGround';
+import { generateStudioHDRTexture } from './StudioHDREnvironment';
 
-// 简化版 OrbitControls - 内联实现避免 URL 问题
-const SimpleOrbitControls: React.FC = () => {
-  const { camera, gl } = useThree();
-  const stateRef = useRef({
-    isDragging: false,
-    prevX: 0,
-    prevY: 0,
-    spherical: new THREE.Spherical(),
-    target: new THREE.Vector3(0, 0, 0),
-  });
+const EMPTY_RECORD: Record<string, string[]> = Object.freeze({});
+const EMPTY_STRING_RECORD: Record<string, string> = Object.freeze({});
 
-  useEffect(() => {
-    const state = stateRef.current;
-    const domElement = gl.domElement;
+const SCENE_GROUND_Y = 0;
 
-    // 初始化球坐标
-    const offset = new THREE.Vector3().subVectors(camera.position, state.target);
-    state.spherical.setFromVector3(offset);
+const GradientBackground: React.FC<{ top: string; bottom: string }> = ({ top, bottom }) => {
+  const geometry = useMemo(() => {
+    const g = new THREE.SphereGeometry(400, 32, 16);
+    const pos = g.getAttribute('position');
+    const colors = new Float32Array(pos.count * 3);
+    const topC = new THREE.Color(top);
+    const bottomC = new THREE.Color(bottom);
 
-    const onMouseDown = (e: MouseEvent) => {
-      state.isDragging = true;
-      state.prevX = e.clientX;
-      state.prevY = e.clientY;
-    };
+    for (let i = 0; i < pos.count; i++) {
+      const y = pos.getY(i);
+      const t = THREE.MathUtils.clamp((y + 400) / 800, 0, 1);
+      const c = bottomC.clone().lerp(topC, t);
+      colors[i * 3 + 0] = c.r;
+      colors[i * 3 + 1] = c.g;
+      colors[i * 3 + 2] = c.b;
+    }
 
-    const onMouseMove = (e: MouseEvent) => {
-      if (!state.isDragging) return;
-      const deltaX = e.clientX - state.prevX;
-      const deltaY = e.clientY - state.prevY;
-      state.prevX = e.clientX;
-      state.prevY = e.clientY;
+    g.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+    return g;
+  }, [bottom, top]);
 
-      // 旋转
-      state.spherical.theta -= deltaX * 0.01;
-      state.spherical.phi -= deltaY * 0.01;
-      state.spherical.phi = Math.max(0.1, Math.min(Math.PI - 0.1, state.spherical.phi));
-    };
-
-    const onMouseUp = () => { state.isDragging = false; };
-
-    const onWheel = (e: WheelEvent) => {
-      e.preventDefault();
-      state.spherical.radius *= e.deltaY > 0 ? 1.1 : 0.9;
-      state.spherical.radius = Math.max(10, Math.min(500, state.spherical.radius));
-    };
-
-    domElement.addEventListener('mousedown', onMouseDown);
-    domElement.addEventListener('mousemove', onMouseMove);
-    domElement.addEventListener('mouseup', onMouseUp);
-    domElement.addEventListener('mouseleave', onMouseUp);
-    domElement.addEventListener('wheel', onWheel, { passive: false });
-
-    return () => {
-      domElement.removeEventListener('mousedown', onMouseDown);
-      domElement.removeEventListener('mousemove', onMouseMove);
-      domElement.removeEventListener('mouseup', onMouseUp);
-      domElement.removeEventListener('mouseleave', onMouseUp);
-      domElement.removeEventListener('wheel', onWheel);
-    };
-  }, [camera, gl]);
-
-  useFrame(() => {
-    const state = stateRef.current;
-    const offset = new THREE.Vector3().setFromSpherical(state.spherical);
-    camera.position.copy(state.target).add(offset);
-    camera.lookAt(state.target);
-  });
-
-  return null;
+  return (
+    <mesh geometry={geometry} scale={[-1, 1, 1]}>
+      <meshBasicMaterial vertexColors side={THREE.BackSide} depthWrite={false} />
+    </mesh>
+  );
 };
 
-// 自定义相机设置
-const CameraSetup: React.FC<{ position: [number, number, number]; fov: number }> = ({ position, fov }) => {
+const CameraSetup: React.FC = () => {
   const { camera } = useThree();
   useEffect(() => {
-    camera.position.set(...position);
-    (camera as THREE.PerspectiveCamera).fov = fov;
-    (camera as THREE.PerspectiveCamera).updateProjectionMatrix();
-  }, [camera, position, fov]);
+    if (camera instanceof THREE.PerspectiveCamera) {
+      camera.near = 0.1;
+      camera.far = 500000;
+      camera.updateProjectionMatrix();
+    }
+  }, [camera]);
   return null;
 };
+
+const SceneEnvironmentCore: React.FC = () => {
+  const background = use3DStore((s) => s.background);
+  const hdr = use3DStore((s) => s.hdr);
+  const hdrTexture = useWebGPUStore((s) => s.hdrTexture);
+
+  const gradedSolid = useMemo(() => applyBackgroundGrade(background.solidColor, background), [background]);
+  const gradedTop = useMemo(() => applyBackgroundGrade(background.gradientTop, background), [background]);
+  const gradedBottom = useMemo(() => applyBackgroundGrade(background.gradientBottom, background), [background]);
+
+  // 🔧 HDR 回退逻辑：当 hdrTexture 为 null 且背景模式为 'hdr' 时，使用程序化生成的 Studio HDR
+  const effectiveHDRTexture = useMemo(() => {
+    if (hdrTexture) return hdrTexture;
+    if (background.mode === 'hdr') {
+      console.log('🎨 使用默认 Studio HDR 环境');
+      return generateStudioHDRTexture('studio', 1024);
+    }
+    return null;
+  }, [hdrTexture, background.mode]);
+
+  const shouldShowHDRBackground = background.mode === 'hdr' && hdr.showBackground && !hdr.groundProjection;
+  const shouldRenderHDRGround = background.mode === 'hdr' && hdr.groundProjection && effectiveHDRTexture;
+
+  return (
+    <>
+      {background.mode === 'solid' && <color attach="background" args={[gradedSolid]} />}
+      {background.mode === 'gradient' && <GradientBackground top={gradedTop} bottom={gradedBottom} />}
+
+      <PerspectiveCamera makeDefault position={[200, 150, 200]} fov={45} near={0.1} far={500000} />
+      <CameraSetup />
+
+      <HDRDome
+        texture={effectiveHDRTexture}
+        showBackground={shouldShowHDRBackground}
+        intensity={hdr.intensity}
+        useForLighting={hdr.useForLighting}
+      />
+
+      {shouldRenderHDRGround && (
+        <GroundProjectedEnv
+          texture={effectiveHDRTexture}
+          height={hdr.domeHeight}
+          radius={hdr.domeRadius}
+          scale={5000}
+          exposure={hdr.intensity}
+        />
+      )}
+
+      <ambientLight intensity={effectiveHDRTexture && hdr.useForLighting ? 0.1 : 0.3} />
+      {(!effectiveHDRTexture || !hdr.useForLighting) && (
+        <>
+          <directionalLight position={[10, 10, 5]} intensity={1} castShadow />
+          <hemisphereLight args={['#ffffff', '#444444', 0.6]} />
+        </>
+      )}
+    </>
+  );
+};
+
+const HDRDome: React.FC<{
+  texture: THREE.Texture | null;
+  showBackground?: boolean;
+  intensity?: number;
+  useForLighting?: boolean;
+}> = ({ texture, showBackground = false, intensity = 1, useForLighting = true }) => {
+  const { scene, gl, camera } = useThree();
+  const meshRef = useRef<THREE.Mesh | null>(null);
+
+  useFrame(() => {
+    const m = meshRef.current;
+    if (!m) return;
+    const far = (camera as THREE.PerspectiveCamera).far ?? 50000;
+    m.position.copy(camera.position);
+    const s = Math.max(1000, far * 0.95);
+    m.scale.set(-s, s, s);
+  });
+
+  useEffect(() => {
+    if (!texture || !useForLighting) return;
+
+    const pmremGenerator = new THREE.PMREMGenerator(gl);
+    pmremGenerator.compileEquirectangularShader();
+    const envRT = pmremGenerator.fromEquirectangular(texture);
+    const envMap = envRT.texture;
+
+    const previousEnv = scene.environment;
+    scene.environment = envMap;
+    if ('environmentIntensity' in scene) {
+      (scene as any).environmentIntensity = intensity;
+    }
+
+    return () => {
+      scene.environment = previousEnv ?? null;
+      envRT.dispose();
+      pmremGenerator.dispose();
+    };
+  }, [texture, scene, gl, intensity, useForLighting]);
+
+  if (!texture || !showBackground) return null;
+
+  return (
+    <mesh ref={meshRef} scale={[-1, 1, 1]}>
+      <sphereGeometry args={[1, 64, 32]} />
+      <meshBasicMaterial map={texture} side={THREE.BackSide} toneMapped={false} />
+    </mesh>
+  );
+};
+
+function applyBackgroundGrade(hex: string, grade: { hue?: number; saturation?: number; lightness?: number; contrast?: number; exposure?: number }): string {
+  const color = new THREE.Color(hex);
+  const hsl = { h: 0, s: 0, l: 0 };
+  color.getHSL(hsl);
+
+  const hueOffset = ((grade.hue ?? 0) % 360 + 360) % 360;
+  color.setHSL(
+    ((hsl.h * 360 + hueOffset) % 360) / 360,
+    Math.min(1, Math.max(0, hsl.s * (grade.saturation ?? 1))),
+    Math.min(1, Math.max(0, hsl.l * (grade.lightness ?? 1))),
+  );
+
+  const linear = color.clone().convertSRGBToLinear();
+  linear.multiplyScalar(Math.max(0, grade.exposure ?? 1));
+  linear.r = (linear.r - 0.5) * (grade.contrast ?? 1) + 0.5;
+  linear.g = (linear.g - 0.5) * (grade.contrast ?? 1) + 0.5;
+  linear.b = (linear.b - 0.5) * (grade.contrast ?? 1) + 0.5;
+  linear.r = Math.min(1, Math.max(0, linear.r));
+  linear.g = Math.min(1, Math.max(0, linear.g));
+  linear.b = Math.min(1, Math.max(0, linear.b));
+
+  return `#${linear.convertLinearToSRGB().getHexString()}`;
+}
 
 
 interface View3DProps {
@@ -110,13 +211,55 @@ export const View3D: React.FC<View3DProps> = ({ height = '100%' }) => {
     }))
   );
 
+  // 🔍 调试：打印数据状态
+  useEffect(() => {
+    console.log('🎮 View3D - 数据状态:', {
+      vectorsCount: clipmaskVectors.length,
+      foldSequenceLength: foldSequence.length,
+      hPanelId,
+      hasDrivenMap: !!drivenMap && Object.keys(drivenMap).length > 0,
+      hasPanelNameMap: !!panelNameMap && Object.keys(panelNameMap).length > 0,
+    });
+  }, [clipmaskVectors.length, foldSequence.length, hPanelId, drivenMap, panelNameMap]);
+
   const [foldProgress, setFoldProgress] = useState(0);
+  const foldProgressRef = useRef(0);
+  const foldProgressRafRef = useRef<number | null>(null);
   const [useSkinnedMesh, setUseSkinnedMesh] = useState(true);
   const [showWireframe, setShowWireframe] = useState(false);
 
+  // 🆕 参数化控制状态
+  const [showParametricControls, setShowParametricControls] = useState(false);
+  const [parametricParams, setParametricParams] = useState({
+    width: 100,
+    height: 100,
+    thickness: 2,
+    gapSize: 2,
+  });
+
+  const ground = use3DStore((s) => s.ground);
+  const effectiveGroundY = SCENE_GROUND_Y;
+
+  const controlsRef = useRef<OrbitControlsImpl | null>(null);
+  useEffect(() => {
+    const controls = controlsRef.current;
+    if (!controls) return;
+    controls.target.set(0, 0, 0);
+    controls.update();
+  }, []);
+
+  // 🔍 调试：打印渲染模式切换
+  useEffect(() => {
+    console.log(`🎨 View3D - 渲染模式: ${useSkinnedMesh ? 'SkinnedMesh' : 'Recursive'}`);
+  }, [useSkinnedMesh]);
+
+  useEffect(() => {
+    foldProgressRef.current = foldProgress;
+  }, [foldProgress]);
+
   // 转换 vectors 格式
-  const vectors = useMemo(() => {
-    return clipmaskVectors.map(layer => ({
+  const { vectors, yFlipBaseline } = useMemo(() => {
+    const mapped = clipmaskVectors.map(layer => ({
       id: layer.id,
       name: layer.name,
       x: (layer as any).x ?? layer.bounds?.x ?? 0,
@@ -124,57 +267,132 @@ export const View3D: React.FC<View3DProps> = ({ height = '100%' }) => {
       width: (layer as any).width ?? layer.bounds?.width ?? 100,
       height: (layer as any).height ?? layer.bounds?.height ?? 50,
     }));
+
+    return {
+      vectors: mapped,
+      yFlipBaseline:
+        mapped.length > 0
+          ? (() => {
+            let minY = Infinity;
+            let maxBottom = -Infinity;
+            for (const v of mapped) {
+              minY = Math.min(minY, v.y);
+              maxBottom = Math.max(maxBottom, v.y + v.height);
+            }
+            const baseline = minY + maxBottom;
+            return Number.isFinite(baseline) ? baseline : null;
+          })()
+          : null,
+    };
   }, [clipmaskVectors]);
 
   // 确定根节点
   const rootId = hPanelId || (foldSequence.length > 0 ? foldSequence[0] : vectors[0]?.id);
 
+  const drivenMapStable = drivenMap ?? EMPTY_RECORD;
+  const panelNameMapStable = panelNameMap ?? EMPTY_STRING_RECORD;
+
+  // 🔍 调试：打印根节点和向量数据
+  useEffect(() => {
+    console.log('🌳 View3D - 树结构:', {
+      rootId,
+      vectorsCount: vectors.length,
+      firstVector: vectors[0] ? {
+        id: vectors[0].id,
+        name: vectors[0].name,
+        x: vectors[0].x,
+        y: vectors[0].y,
+        width: vectors[0].width,
+        height: vectors[0].height,
+      } : null,
+    });
+  }, [rootId, vectors.length]);
+
   return (
-    <div style={{
-      width: '100%',
-      height,
-      position: 'relative',
-      background: COMPONENT_TOKENS.canvas.bg.area,
-    }}>
+    <div style={{ width: '100%', height, position: 'relative', background: COMPONENT_TOKENS.canvas.bg.area }}>
+      {/* 🚀 性能优化：Canvas 配置 */}
       <Canvas
         shadows
         dpr={[1, 2]}
-        gl={{ antialias: true, alpha: false }}
+        gl={{
+          powerPreference: 'high-performance',
+          antialias: true,
+          alpha: false,
+          preserveDrawingBuffer: false,
+          depth: true,
+        }}
+        style={{ background: 'transparent' }}
       >
-        <color attach="background" args={['#0a0a0f']} />
-        <CameraSetup position={[150, 120, 150]} fov={45} />
-        <ambientLight intensity={0.4} />
-        <directionalLight position={[10, 10, 5]} intensity={1} />
-        <hemisphereLight args={['#ffffff', '#444444', 0.6]} />
+        <Suspense fallback={null}>
+          <SceneEnvironmentCore />
+        </Suspense>
 
         <Suspense fallback={null}>
           {rootId && vectors.length > 0 && (
-            useSkinnedMesh ? (
-              <SkinnedMeshView
-                vectors={vectors}
-                rootId={rootId}
-                drivenMap={drivenMap || {}}
-                nameMap={panelNameMap || {}}
-                foldProgress={foldProgress}
-                thickness={2}
-                cornerRadius={2}
-                showWireframe={showWireframe}
-              />
-            ) : (
-              <RecursiveFoldingBox
-                vectors={vectors}
-                rootId={rootId}
-                drivenMap={drivenMap || {}}
-                nameMap={panelNameMap || {}}
-                foldProgress={foldProgress}
-                thickness={2}
-              />
-            )
+            <group position={[0, 0, 0]}>
+              {useSkinnedMesh ? (
+                <SkinnedMeshView
+                  vectors={vectors}
+                  rootId={rootId}
+                  drivenMap={drivenMapStable}
+                  nameMap={panelNameMapStable}
+                  foldProgress={foldProgress}
+                  thickness={2}
+                  cornerRadius={2}
+                  showWireframe={showWireframe}
+                  yFlipBaseline={yFlipBaseline}
+                />
+              ) : (
+                <RecursiveFoldingBox
+                  vectors={vectors}
+                  rootId={rootId}
+                  drivenMap={drivenMapStable}
+                  nameMap={panelNameMapStable}
+                  foldProgress={foldProgress}
+                  thickness={2}
+                  yFlipBaseline={yFlipBaseline}
+                />
+              )}
+            </group>
           )}
         </Suspense>
 
-        <gridHelper args={[200, 20, '#333', '#222']} />
-        <SimpleOrbitControls />
+        {ground.visible && (
+          <>
+            <ContactShadows
+              position={[0, effectiveGroundY, 0]}
+              scale={300}
+              blur={2.5}
+              far={50}
+              opacity={0.6 * ground.opacity}
+              resolution={256}
+              frames={1}
+            />
+            <InfiniteGround
+              y={effectiveGroundY}
+              size={10000}
+              reflectivity={ground.reflectivity}
+              color={ground.color}
+              mirror={ground.reflectivity * 0.8}
+              blur={[400, 200]}
+              mixBlur={1.0}
+            />
+          </>
+        )}
+
+        <OrbitControls
+          makeDefault
+          ref={controlsRef}
+          enablePan={false}
+          minPolarAngle={0}
+          maxPolarAngle={Math.PI / 1.8}
+          minDistance={5}
+          maxDistance={500000}
+          enableDamping
+          dampingFactor={0.1}
+          rotateSpeed={1.0}
+          zoomSpeed={1.2}
+        />
       </Canvas>
 
       {/* 控制面板 */}
@@ -225,19 +443,56 @@ export const View3D: React.FC<View3DProps> = ({ height = '100%' }) => {
           </button>
         )}
 
+        {/* 🆕 参数化控制按钮 */}
+        <button
+          onClick={() => setShowParametricControls(!showParametricControls)}
+          style={{
+            padding: '4px 8px',
+            fontSize: 11,
+            background: showParametricControls ? '#06b6d4' : 'transparent',
+            color: showParametricControls ? '#fff' : SEMANTIC_TOKENS.color.text.secondary,
+            border: `1px solid ${SEMANTIC_TOKENS.color.border.default}`,
+            borderRadius: SEMANTIC_TOKENS.border.radius.sm,
+            cursor: 'pointer',
+          }}
+        >
+          参数
+        </button>
+
         <span style={{ color: SEMANTIC_TOKENS.color.text.secondary, fontSize: 12 }}>折叠</span>
         <input
           type="range"
           min={0}
           max={100}
           value={foldProgress * 100}
-          onChange={(e) => setFoldProgress(Number(e.target.value) / 100)}
+          onChange={(e) => {
+            foldProgressRef.current = Number(e.target.value) / 100;
+            if (foldProgressRafRef.current !== null) return;
+            foldProgressRafRef.current = window.requestAnimationFrame(() => {
+              foldProgressRafRef.current = null;
+              setFoldProgress(foldProgressRef.current);
+            });
+          }}
           style={{ flex: 1 }}
         />
         <span style={{ color: SEMANTIC_TOKENS.color.text.primary, fontSize: 12, width: 40 }}>
           {Math.round(foldProgress * 100)}%
         </span>
       </div>
+
+      {/* 🆕 参数化控制面板 */}
+      {showParametricControls && (
+        <ParametricControls
+          initialWidth={parametricParams.width}
+          initialHeight={parametricParams.height}
+          initialThickness={parametricParams.thickness}
+          initialGapSize={parametricParams.gapSize}
+          onChange={(newParams) => {
+            console.log('🎛️ 参数化调整:', newParams);
+            setParametricParams(newParams);
+          }}
+        />
+      )}
     </div>
   );
 };

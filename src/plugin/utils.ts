@@ -166,6 +166,16 @@ export interface MarkedNodeInfo {
   crafts: CraftTypeZh[];
   grayValue: number;
   craftParams?: Record<string, unknown>;
+  
+  // 🆕 参数化系统字段
+  svgPath?: string;           // SVG 路径数据（真实形状）
+  rasterCache?: string;       // Base64 缓存的光栅化贴图
+  originalBounds?: {          // 原始边界（用于动态缩放）
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  };
 }
 
 /** 从节点获取工艺数据 */

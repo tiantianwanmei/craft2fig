@@ -9664,14 +9664,7 @@
       document.getElementById('craftVectorRow').classList.toggle('active', craftVectorEnabled);
       document.getElementById('craftVectorSwitch').classList.toggle('active', craftVectorEnabled);
 
-      if (sourceFrameId) {
-        parent.postMessage({
-          pluginMessage: {
-            type: craftVectorEnabled ? 'generateCraftVectorLayers' : 'clearCraftVectorLayers',
-            frameId: sourceFrameId
-          }
-        }, '*');
-      }
+      // Craft Vector toggle is declarative only. Generation must happen only during explicit export.
     }
 
     // ============================================

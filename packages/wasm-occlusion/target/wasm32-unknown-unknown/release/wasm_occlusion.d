@@ -1,0 +1,1 @@
+C:\Users\Administrator\Documents\2016-1-26\packages\wasm-occlusion\target\wasm32-unknown-unknown\release\wasm_occlusion.wasm: C:\Users\Administrator\Documents\2016-1-26\packages\wasm-occlusion\src\lib.rs

@@ -24,6 +24,20 @@ esbuild.build({
     '__html__': JSON.stringify(html),
   },
 }).then(() => {
+  try {
+    const wasmSrc = path.join(__dirname, 'packages', 'wasm-occlusion', 'target', 'wasm32-unknown-unknown', 'release', 'wasm_occlusion.wasm');
+    const wasmOutDir = path.join(__dirname, 'dist', 'wasm');
+    const wasmDst = path.join(wasmOutDir, 'wasm_occlusion.wasm');
+    if (fs.existsSync(wasmSrc)) {
+      if (!fs.existsSync(wasmOutDir)) fs.mkdirSync(wasmOutDir, { recursive: true });
+      fs.copyFileSync(wasmSrc, wasmDst);
+      console.log('✅ Copied wasm asset:', path.relative(__dirname, wasmDst));
+    } else {
+      console.warn('⚠️ wasm asset not found (skip copy):', path.relative(__dirname, wasmSrc));
+    }
+  } catch (e) {
+    console.warn('⚠️ wasm asset copy failed (ignored):', e);
+  }
   console.log('✅ Plugin built successfully with injected HTML');
 }).catch((err) => {
   console.error('❌ Plugin build failed:', err);

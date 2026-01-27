@@ -16,6 +16,7 @@ import {
   SELECTION_CHANGE_DEBOUNCE,
   DRIVEN_RELATIONS_KEY,
   SELECTED_VECTORS_KEY,
+  GENERATED_CRAFT_VECTOR_KEY,
   type CraftTypeZh,
 } from './constants';
 
@@ -35,13 +36,13 @@ import {
 } from './indicator';
 
 import {
-  sendFramePreview,
-  sendSavedVectors,
-  sendMarkedLayersFromCache,
   sendSuccess,
   sendError,
+  sendSavedVectors,
+  sendMarkedLayersFromCache,
   exportNodeWithPadding,
   sendClearPreviewData,
+  exportCraftTexture,
 } from './messages';
 
 import {
@@ -65,16 +66,236 @@ import { clearCraftData, setCraftParams } from './utils';
 import { removeFromCache, hasRemainingCrafts } from './cache';
 import { removeCraftIndicator } from './indicator';
 
+function clearGeneratedCraftVectorLayers(frame: FrameNode | ComponentNode | InstanceNode): void {
+  try {
+    const raw = frame.getPluginData(GENERATED_CRAFT_VECTOR_KEY);
+    if (!raw) return;
+    const ids = JSON.parse(raw) as unknown;
+    if (!Array.isArray(ids)) return;
+    for (const id of ids) {
+      if (typeof id !== 'string') continue;
+      const node = figma.getNodeById(id);
+      if (node) node.remove();
+    }
+  } catch (_e) {
+    // ignore
+  }
+  try {
+    frame.setPluginData(GENERATED_CRAFT_VECTOR_KEY, '');
+  } catch (_e) {
+    // ignore
+  }
+}
+
+function generateCraftVectorLayers(frame: FrameNode | ComponentNode | InstanceNode): void {
+  clearGeneratedCraftVectorLayers(frame);
+
+  const createdIds: string[] = [];
+  const frameBounds = frame.absoluteBoundingBox;
+  if (!frameBounds) return;
+
+  const byCraft = new Map<CraftTypeZh, SceneNode[]>();
+
+  const walk = (node: SceneNode) => {
+    if (!('visible' in node) || !node.visible) return;
+    if (isCraftInfraByName(node)) return;
+
+    try {
+      const craftData = (node as any).getPluginData ? (node as any).getPluginData('craftTypes') : '';
+      if (craftData) {
+        const parsed = JSON.parse(String(craftData)) as unknown;
+        if (Array.isArray(parsed)) {
+          for (const c of parsed) {
+            const craft = c as CraftTypeZh;
+            if (!byCraft.has(craft)) byCraft.set(craft, []);
+            byCraft.get(craft)!.push(node);
+          }
+        }
+      }
+    } catch (_e) {
+      // ignore
+    }
+
+    if ('children' in node && node.children.length > 0) {
+      for (const child of node.children) {
+        walk(child);
+      }
+    }
+  };
+
+  if ('children' in frame) {
+    for (const child of frame.children) {
+      walk(child);
+    }
+  }
+
+  for (const [craftType, nodes] of byCraft) {
+    const group = figma.createFrame();
+    group.name = `__craft_vector_${craftType}`;
+    group.fills = [];
+    group.strokes = [];
+    group.clipsContent = false;
+    group.locked = true;
+    group.visible = true;
+    group.resize(1, 1);
+    group.x = 0;
+    group.y = 0;
+    frame.appendChild(group);
+    createdIds.push(group.id);
+
+    for (const node of nodes) {
+      if (!isVectorLike(node)) continue;
+      try {
+        const clone = (node as any).clone() as SceneNode;
+        group.appendChild(clone);
+        createdIds.push(clone.id);
+
+        const b = (node as any).absoluteBoundingBox as { x: number; y: number; width: number; height: number } | null;
+        if (b && 'x' in clone && 'y' in clone) {
+          clone.x = b.x - frameBounds.x;
+          clone.y = b.y - frameBounds.y;
+        }
+
+        if ('fills' in clone) {
+          (clone as any).fills = [{ type: 'SOLID', color: { r: 1, g: 1, b: 1 } }];
+        }
+        if ('strokes' in clone) {
+          (clone as any).strokes = [];
+        }
+        if ('effects' in clone) {
+          (clone as any).effects = [];
+        }
+        if ('opacity' in clone) {
+          (clone as any).opacity = 1;
+        }
+      } catch (_e) {
+        // ignore
+      }
+    }
+  }
+
+  try {
+    frame.setPluginData(GENERATED_CRAFT_VECTOR_KEY, JSON.stringify(createdIds));
+  } catch (_e) {
+    // ignore
+  }
+}
+
 function overlapsBounds(
   a: { x: number; y: number; width: number; height: number },
   b: { x: number; y: number; width: number; height: number }
-): boolean {
+) : boolean {
   return !(
     a.x + a.width <= b.x ||
     a.x >= b.x + b.width ||
     a.y + a.height <= b.y ||
     a.y >= b.y + b.height
   );
+}
+
+async function handleUnifiedExport(payload: {
+  frameId: string;
+  vectorIds: string[];
+  scale?: number;
+  format?: 'PNG' | 'JPG';
+  exportCraftVector?: boolean;
+  foldSequence?: string[];
+  drivenRelations?: Record<string, unknown>;
+  panelNameMap?: Record<string, string>;
+  rootPanelId?: string | null;
+  normalSettings?: unknown;
+  craftSettings?: unknown;
+}): Promise<void> {
+  const frameId = payload?.frameId;
+  if (!frameId) {
+    sendError('Source frame not found');
+    return;
+  }
+
+  const frameNode = figma.getNodeById(frameId);
+  if (!frameNode || !isFrameNode(frameNode) || frameNode.type === 'GROUP') {
+    sendError('Source frame not found');
+    return;
+  }
+  const frame = frameNode as FrameNode | ComponentNode | InstanceNode;
+
+  const ids = Array.isArray(payload.vectorIds) ? payload.vectorIds.filter((v) => typeof v === 'string') : [];
+  if (ids.length === 0) {
+    sendError('No vectors selected');
+    return;
+  }
+
+  const vectors: Array<{ id: string; name: string; x: number; y: number; width: number; height: number }> = [];
+  const panelNameMap: Record<string, string> = {};
+
+  for (const id of ids) {
+    const node = figma.getNodeById(id);
+    if (!node || !isVectorLike(node)) continue;
+    const b = (node as any).absoluteBoundingBox as { x: number; y: number; width: number; height: number } | null;
+    if (!b) continue;
+    vectors.push({ id: node.id, name: node.name, x: b.x, y: b.y, width: b.width, height: b.height });
+    panelNameMap[node.id] = node.name;
+  }
+
+  const drivenFromStorage: unknown = (() => {
+    try {
+      const raw = frame.getPluginData(DRIVEN_RELATIONS_KEY);
+      if (!raw) return null;
+      return JSON.parse(raw);
+    } catch (_e) {
+      return null;
+    }
+  })();
+
+  const drivenRelations = payload.drivenRelations && typeof payload.drivenRelations === 'object'
+    ? payload.drivenRelations
+    : (drivenFromStorage && typeof drivenFromStorage === 'object' ? drivenFromStorage as Record<string, unknown> : {});
+
+  const mergedNameMap = {
+    ...panelNameMap,
+    ...(payload.panelNameMap && typeof payload.panelNameMap === 'object' ? payload.panelNameMap : {}),
+  };
+
+  const exportId = `${Date.now()}_${Math.random().toString(16).slice(2)}`;
+
+  const masks: Array<{ id: string; name: string; craftType: CraftTypeZh; texture: string }> = [];
+  if (payload.exportCraftVector) {
+    const seen = new Set<string>();
+    for (const id of ids) {
+      const node = figma.getNodeById(id);
+      if (!node || !isVectorLike(node)) continue;
+      const clipVector = node as SceneNode;
+      for (const craftType of ['烫金', '烫银', 'UV', '凹凸', '法线', '置换'] as const) {
+        const k = `${craftType}|${clipVector.id}`;
+        if (seen.has(k)) continue;
+        seen.add(k);
+        const tex = await exportCraftTexture(clipVector, frame, craftType);
+        if (tex) {
+          masks.push({ id: clipVector.id, name: clipVector.name, craftType, texture: tex });
+        }
+      }
+    }
+  }
+
+  figma.ui.postMessage({
+    type: 'result',
+    data: {
+      exportId,
+      name: frame.name,
+      exportMode: 'unified',
+      version: '1.0.0',
+      frameId: frame.id,
+      vectorIds: ids,
+      vectors,
+      rootPanelId: typeof payload.rootPanelId === 'string' ? payload.rootPanelId : null,
+      foldSequence: Array.isArray(payload.foldSequence) ? payload.foldSequence : [],
+      drivenRelations,
+      panelNameMap: mergedNameMap,
+      normalSettings: payload.normalSettings ?? null,
+      craftSettings: payload.craftSettings ?? null,
+      masks,
+    },
+  });
 }
 
 function isCraftInfraByName(node: SceneNode): boolean {
@@ -229,11 +450,6 @@ async function startPostUiInitOnce(): Promise<void> {
   if (didStartPostUiInit) return;
   didStartPostUiInit = true;
   try {
-    await regenerateAllCraftIndicatorsChunked({ timeBudgetMs: 8, yieldDelayMs: 0 });
-  } catch (e) {
-    console.warn('⚠️ Failed to regenerate craft indicators:', e);
-  }
-  try {
     figma.ui.postMessage({ type: 'PLUGIN_READY' });
   } catch (_e) {
     // ignore
@@ -297,8 +513,9 @@ figma.on('selectionchange', () => {
     }
 
     handleGetSelection();
-    sendFramePreview();
-    sendSavedVectors();
+    // Keep selectionchange lightweight: avoid exporting images on every change.
+    // Full frame export should only happen on explicit user actions (e.g. export).
+    void sendSavedVectors({ includeFrameImage: false });
     // 🔧 修复：selection change 时跳过刷新，避免意外清除缓存
     sendMarkedLayersFromCache({ skipRefresh: true });
   }, SELECTION_CHANGE_DEBOUNCE);
@@ -355,16 +572,42 @@ figma.ui.onmessage = async (msg: PluginMessage) => {
         break;
 
       case 'exportUnified':
-        // TODO: 实现统一导出
+        await handleUnifiedExport(msg.payload as any);
         break;
+
+      case 'generateCraftVectorLayers': {
+        const frameId = (msg as any).frameId as string;
+        const node = frameId ? figma.getNodeById(frameId) : null;
+        const targetFrame = node && isFrameNode(node)
+          ? (node as FrameNode | ComponentNode | InstanceNode)
+          : (node ? findParentFrame(node as SceneNode) : null);
+        if (targetFrame) {
+          generateCraftVectorLayers(targetFrame);
+        }
+        break;
+      }
+
+      case 'clearCraftVectorLayers': {
+        const frameId = (msg as any).frameId as string;
+        const node = frameId ? figma.getNodeById(frameId) : null;
+        const targetFrame = node && isFrameNode(node)
+          ? (node as FrameNode | ComponentNode | InstanceNode)
+          : (node ? findParentFrame(node as SceneNode) : null);
+        if (targetFrame) {
+          clearGeneratedCraftVectorLayers(targetFrame);
+        }
+        break;
+      }
 
       // ========== Vector 操作 ==========
       case 'getVectors':
-        await sendSavedVectors();
+        await sendSavedVectors({ includeFrameImage: false });
         break;
 
       case 'addVectors':
         await handleAddVectors();
+        // User explicitly updated vectors; refresh previews including full-frame image once.
+        await sendSavedVectors({ includeFrameImage: true });
         break;
 
       case 'saveSelectedVectors':
@@ -375,15 +618,17 @@ figma.ui.onmessage = async (msg: PluginMessage) => {
         break;
 
       case 'getSavedVectors':
-        await sendSavedVectors();
+        await sendSavedVectors({ includeFrameImage: false });
         break;
 
       case 'clearSavedVectors':
         clearSavedVectors(msg.frameId as string | undefined);
+        await sendSavedVectors({ includeFrameImage: false });
         break;
 
       case 'renameVectors':
         renameVectors(msg.renames as Array<{ id: string; name: string }>);
+        await sendSavedVectors({ includeFrameImage: false });
         break;
 
       // ========== 工艺标记操作 ==========
@@ -1105,7 +1350,7 @@ async function handleGetSelectionForNormalPreview(): Promise<void> {
   }
 
   try {
-    const result = await exportNodeWithPadding(node, 0.15);
+    const result = await exportNodeWithPadding(node, 0.15, { maxSide: 2048, maxScale: 2 });
 
     figma.ui.postMessage({
       type: 'normalPreviewData',
@@ -1186,7 +1431,8 @@ async function handleGetLayerForOcclusionPreview(layerId: string, requestId: num
   const wrapperW = bbox.width + padding * 2;
   const wrapperH = bbox.height + padding * 2;
 
-  const target = await exportNodeWithPadding(node, paddingRatio);
+  const target = await exportNodeWithPadding(node, paddingRatio, { maxSide: 2048, maxScale: 2 });
+  const exportScale = Math.max(0.05, target.width / Math.max(1, wrapperW));
 
   const occluderFrame = figma.createFrame();
   occluderFrame.name = '__temp_occlusion_wrapper__';
@@ -1233,10 +1479,9 @@ async function handleGetLayerForOcclusionPreview(layerId: string, requestId: num
 
     const occBytes = await occluderFrame.exportAsync({
       format: 'PNG',
-      constraint: { type: 'SCALE', value: 2 },
+      constraint: { type: 'SCALE', value: exportScale },
     });
 
-    const exportScale = 2;
     const occPxW = Math.round(occluderFrame.width * exportScale);
     const occPxH = Math.round(occluderFrame.height * exportScale);
 
@@ -1320,24 +1565,23 @@ async function handleInitApp(): Promise<void> {
   // 1. 发送选择状态
   handleGetSelection();
 
-  // 2. 🔥 关键修复：发送 Frame 预览（刀版图预览）
-  await sendFramePreview();
+  // 2. 发送已保存的 Vectors（轻量，不导出整张 Frame）
+  await sendSavedVectors({ includeFrameImage: false });
 
-  // 3. 🔥 关键修复：发送已保存的 Vectors（刀版图轮廓）
-  await sendSavedVectors();
-
-  // 4. 发送已标记图层
+  // 3. 发送已标记图层
   handleGetMarkedLayers();
   sendMarkedLayersFromCache();
 
-  // 5. 发送折叠边数据
+  // 4. 发送折叠边数据
   handleGetFoldEdges();
 
-  // 6. 发送驱动关系
+  // 5. 发送驱动关系
   handleGetDrivenRelations();
 
-  // 7. 自动发送第一个已标记图层的预览数据
-  await sendInitialPreviewData();
+  // 7. 默认不自动生成任何预览数据（重操作）；需要时由 UI 显式请求 getLayerForOcclusionPreview
+  if (false) {
+    await sendInitialPreviewData();
+  }
 }
 
 /** 发送初始预览数据 - 自动选择第一个已标记图层 */

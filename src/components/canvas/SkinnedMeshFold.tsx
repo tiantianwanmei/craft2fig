@@ -138,6 +138,7 @@ export const SkinnedMeshFold: React.FC<SkinnedMeshFoldProps> = ({
 }) => {
   const meshRef = useRef<THREE.SkinnedMesh>(null);
   const skeletonRef = useRef<THREE.Skeleton | null>(null);
+  const lastFoldAngleRef = useRef<number>(Number.NaN);
 
   // 转换面板数据
   const panelDataMap = useMemo(() => {
@@ -401,31 +402,43 @@ export const SkinnedMeshFold: React.FC<SkinnedMeshFoldProps> = ({
     skeletonRef.current = skeleton;
   }, [skeleton]);
 
+  const edgeRotationTable = useMemo(() => {
+    const table: Array<{ boneIdx: number; axis: 'x' | 'z'; direction: 1 | -1 }> = [];
+
+    for (const edge of foldEdges) {
+      const childBoneIdx = boneMap.get(edge.childId);
+      if (childBoneIdx === undefined) continue;
+
+      const parent = panelDataMap.get(edge.parentId);
+      const child = panelDataMap.get(edge.childId);
+      if (!parent || !child) continue;
+
+      if (edge.type === 'horizontal') {
+        const isBelow = child.y > parent.y;
+        table.push({ boneIdx: childBoneIdx, axis: 'x', direction: isBelow ? 1 : -1 });
+      } else {
+        const isRight = child.x > parent.x;
+        table.push({ boneIdx: childBoneIdx, axis: 'z', direction: isRight ? -1 : 1 });
+      }
+    }
+
+    return table;
+  }, [boneMap, foldEdges, panelDataMap]);
+
   // 动画更新
   useFrame(() => {
     if (!skeletonRef.current || !rootPanelId) return;
 
     const foldAngle = foldProgress * Math.PI / 2;
 
-    foldEdges.forEach(edge => {
-      const childBoneIdx = boneMap.get(edge.childId);
-      if (childBoneIdx === undefined) return;
+    if (foldAngle === lastFoldAngleRef.current) return;
+    lastFoldAngleRef.current = foldAngle;
 
-      const bone = skeletonRef.current!.bones[childBoneIdx];
-      if (!bone) return;
-
-      const parent = panelDataMap.get(edge.parentId);
-      const child = panelDataMap.get(edge.childId);
-      if (!parent || !child) return;
-
-      if (edge.type === 'horizontal') {
-        const isBelow = child.y > parent.y;
-        bone.rotation.x = isBelow ? foldAngle : -foldAngle;
-      } else {
-        const isRight = child.x > parent.x;
-        bone.rotation.z = isRight ? -foldAngle : foldAngle;
-      }
-    });
+    for (const row of edgeRotationTable) {
+      const bone = skeletonRef.current!.bones[row.boneIdx];
+      if (!bone) continue;
+      bone.rotation[row.axis] = row.direction * foldAngle;
+    }
   });
 
   useEffect(() => {

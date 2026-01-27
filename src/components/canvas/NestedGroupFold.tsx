@@ -12,7 +12,7 @@ import React, { useMemo, useRef, useState, useEffect } from 'react';
 import * as THREE from 'three';
 import { useFrame } from '@react-three/fiber';
 import type { MarkedLayer } from '../../types/core';
-import { usePBRMapsFromCraftLayers, type PBRMaps } from '../../hooks/usePBRMapsFromCraftLayers';
+import { type PBRMaps } from '../../hooks/usePBRMapsFromCraftLayers';
 
 // 贴图缓存 - 全局缓存避免重复加载
 const textureCache = new Map<string, THREE.Texture>();
@@ -525,7 +525,7 @@ const RootPanelMesh: React.FC<{
 /**
  * Panel3D 的备用渲染组件（矩形+alphaMap）
  */
-const Panel3DFallback: React.FC<{
+export const Panel3DFallback: React.FC<{
   node: Node3D;
   width: number;
   height: number;
@@ -625,6 +625,7 @@ const Panel3D: React.FC<{
   pbrMaps?: PBRMaps;
 }> = ({ node, foldProgress, scale, thickness, renderConfig, pbrMaps }) => {
   const groupRef = useRef<THREE.Group>(null);
+  const quaternionRef = useRef(new THREE.Quaternion());
 
   // 计算当前面板的局部折叠进度
   const localProgress = calculateLocalProgress(
@@ -639,9 +640,8 @@ const Panel3D: React.FC<{
   // 使用 useFrame 更新旋转
   useFrame(() => {
     if (groupRef.current) {
-      const quaternion = new THREE.Quaternion();
-      quaternion.setFromAxisAngle(node.rotationAxis, foldAngle);
-      groupRef.current.quaternion.copy(quaternion);
+      quaternionRef.current.setFromAxisAngle(node.rotationAxis, foldAngle);
+      groupRef.current.quaternion.copy(quaternionRef.current);
     }
   });
 

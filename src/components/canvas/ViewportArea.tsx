@@ -78,436 +78,436 @@ function filterNestedVectors(vectors: any[]): any[] {
   });
 }
 
- const styles = {
-   root: {
-     position: 'relative' as const,
-     width: '100%',
-     height: '100%',
-     overflow: 'hidden',
-     background: 'transparent',
-   },
-   header: {
-     display: 'flex',
-     alignItems: 'center',
-     justifyContent: 'space-between',
-     padding: `${SEMANTIC_TOKENS.spacing.component.md} ${SEMANTIC_TOKENS.spacing.component.lg}`,
-     borderBottom: `${SEMANTIC_TOKENS.border.width.thin} solid ${SEMANTIC_TOKENS.color.border.default}`,
-     background: SEMANTIC_TOKENS.color.surface.overlay,
-     backdropFilter: 'blur(10px)',
-   },
-   logoSection: {
-     display: 'flex',
-     alignItems: 'center',
-     gap: '8px',
-     minWidth: 0,
-   },
-   logoIcon: {
-     width: '24px',
-     height: '24px',
-     borderRadius: SEMANTIC_TOKENS.border.radius.sm,
-     display: 'grid',
-     placeItems: 'center',
-     background: SEMANTIC_TOKENS.color.bg.interactive.default,
-     border: `${SEMANTIC_TOKENS.border.width.thin} solid ${SEMANTIC_TOKENS.color.border.default}`,
-     boxShadow: SEMANTIC_TOKENS.shadow.md,
-     flexShrink: 0,
-   },
-   logoText: {
-     display: 'flex',
-     flexDirection: 'column' as const,
-     gap: '2px',
-     minWidth: 0,
-   },
-   logoTitle: {
-     fontSize: SEMANTIC_TOKENS.typography.fontSize.xs,
-     lineHeight: 1.1,
-     fontWeight: SEMANTIC_TOKENS.typography.fontWeight.semibold,
-     letterSpacing: '0.2px',
-     color: SEMANTIC_TOKENS.color.text.primary,
-     whiteSpace: 'nowrap' as const,
-     overflow: 'hidden',
-     textOverflow: 'ellipsis',
-   },
-   logoSubtitle: {
-     fontSize: SEMANTIC_TOKENS.typography.fontSize.micro,
-     lineHeight: 1.2,
-     color: SEMANTIC_TOKENS.color.text.tertiary,
-     whiteSpace: 'nowrap' as const,
-     overflow: 'hidden',
-     textOverflow: 'ellipsis',
-   },
-   content: {
-     position: 'absolute' as const,
-     inset: 0,
-     overflow: 'hidden',
-   },
-   placeholder: {
-     position: 'absolute' as const,
-     inset: 0,
-     display: 'flex',
-     alignItems: 'center',
-     justifyContent: 'center',
-     padding: SEMANTIC_TOKENS.spacing.component.xl,
-     color: SEMANTIC_TOKENS.color.text.tertiary,
-   },
-   placeholderCard: {
-     width: 'min(520px, 92%)',
-     borderRadius: SEMANTIC_TOKENS.border.radius.lg,
-     border: `${SEMANTIC_TOKENS.border.width.thin} dashed ${SEMANTIC_TOKENS.color.border.weak}`,
-     background: SEMANTIC_TOKENS.color.bg.interactive.default,
-     boxShadow: SEMANTIC_TOKENS.shadow.lg,
-     padding: '22px 18px',
-     display: 'flex',
-     flexDirection: 'column' as const,
-     alignItems: 'center',
-     gap: SEMANTIC_TOKENS.spacing.component.md,
-     textAlign: 'center' as const,
-   },
-   placeholderIcon: {
-     fontSize: '28px',
-     lineHeight: 1,
-     filter: SEMANTIC_TOKENS.shadow.md,
-   },
-   placeholderText: {
-     fontSize: SEMANTIC_TOKENS.typography.fontSize.xs,
-     lineHeight: 1.5,
-     color: SEMANTIC_TOKENS.color.text.secondary,
-   },
-   vectorContainer: {
-     display: 'flex',
-     flexDirection: 'column' as const,
-     gap: '8px',
-     padding: '8px',
-     flex: 1,
-     minHeight: 0,
-     overflow: 'hidden',
-   },
-   vectorCard: {
-     flex: 1,
-     display: 'flex',
-     flexDirection: 'column' as const,
-     minHeight: 0,
-     borderRadius: SEMANTIC_TOKENS.border.radius.lg,
-     border: `${SEMANTIC_TOKENS.border.width.thin} solid ${SEMANTIC_TOKENS.color.border.default}`,
-     background: SEMANTIC_TOKENS.color.surface.overlay,
-     backdropFilter: 'blur(10px)',
-     boxShadow: SEMANTIC_TOKENS.shadow.lg,
-     overflow: 'hidden',
-   },
-   vectorHeader: {
-     display: 'flex',
-     alignItems: 'center',
-     gap: SEMANTIC_TOKENS.spacing.component.md,
-     padding: `${SEMANTIC_TOKENS.spacing.component.sm} ${SEMANTIC_TOKENS.spacing.component.lg}`,
-     borderBottom: `${SEMANTIC_TOKENS.border.width.thin} solid ${SEMANTIC_TOKENS.color.border.default}`,
-   },
-   vectorTitle: {
-     fontSize: SEMANTIC_TOKENS.typography.fontSize.xs,
-     fontWeight: SEMANTIC_TOKENS.typography.fontWeight.semibold,
-     color: SEMANTIC_TOKENS.color.text.primary,
-     letterSpacing: '0.2px',
-   },
-   vectorHint: {
-     marginLeft: 'auto',
-     fontSize: SEMANTIC_TOKENS.typography.fontSize.micro,
-     color: SEMANTIC_TOKENS.color.text.tertiary,
-     whiteSpace: 'nowrap' as const,
-   },
-   buttonGhost: {
-     appearance: 'none' as const,
-     background: SEMANTIC_TOKENS.color.bg.interactive.default,
-     border: `${SEMANTIC_TOKENS.border.width.thin} solid ${SEMANTIC_TOKENS.color.border.default}`,
-     color: SEMANTIC_TOKENS.color.text.primary,
-     borderRadius: SEMANTIC_TOKENS.border.radius.md,
-     padding: `${SEMANTIC_TOKENS.spacing.component.sm} ${SEMANTIC_TOKENS.spacing.component.md}`,
-     cursor: 'pointer',
-     fontSize: SEMANTIC_TOKENS.typography.fontSize.xs,
-     lineHeight: 1,
-     display: 'inline-flex',
-     alignItems: 'center',
-     gap: SEMANTIC_TOKENS.spacing.component.sm,
-     flexShrink: 0,
-   },
-   canvasArea: {
-     position: 'absolute' as const,
-     inset: 0,
-     overflow: 'hidden',
-     background: COMPONENT_TOKENS.canvas.bg.area,
-   },
-   canvasSurface: {
-     position: 'relative' as const,
-     width: '100%',
-     height: '100%',
-     borderRadius: SEMANTIC_TOKENS.border.radius.lg,
-     border: `1px solid ${COMPONENT_TOKENS.canvas.border.surface}`,
-     background: COMPONENT_TOKENS.canvas.bg.surface,
-     overflow: 'hidden',
-   },
-   canvasControls: {
-     position: 'absolute' as const,
-     top: '8px',
-     left: '8px',
-     zIndex: 5,
-     display: 'flex',
-     alignItems: 'center',
-     gap: '4px',
-     padding: '4px 6px',
-     borderRadius: '8px',
-     border: '1px solid rgba(255, 255, 255, 0.1)',
-     background: 'rgba(18, 18, 22, 0.85)',
-     backdropFilter: 'blur(12px)',
-     boxShadow: '0 2px 8px rgba(0, 0, 0, 0.3)',
-   },
-   canvasBtn: {
-     width: '20px',
-     height: '20px',
-     borderRadius: '4px',
-     border: 'none',
-     background: 'transparent',
-     color: SEMANTIC_TOKENS.color.text.secondary,
-     cursor: 'pointer',
-     fontSize: '11px',
-     lineHeight: 1,
-     display: 'grid',
-     placeItems: 'center',
-   },
-   canvasZoom: {
-     minWidth: '32px',
-     textAlign: 'center' as const,
-     fontSize: '10px',
-     color: SEMANTIC_TOKENS.color.text.secondary,
-     fontVariantNumeric: 'tabular-nums' as const,
-     fontFamily: 'monospace',
-   },
-   spatialViewport: {
-     position: 'absolute' as const,
-     inset: 0,
-     transformOrigin: '0 0',
-   },
-   // Vector 卡片 - 原版轻量级样式（性能优化）
-   vectorItem: {
-     position: 'absolute' as const,
-     borderRadius: '4px',
-     border: '1px solid rgba(255, 255, 255, 0.12)',
-     background: 'rgba(255, 255, 255, 0.03)',
-     cursor: 'pointer',
-     transition: 'all 0.15s ease',
-     display: 'flex',
-     alignItems: 'center',
-     justifyContent: 'center',
-     overflow: 'hidden',
-   },
-   vectorItemHover: {
-     borderColor: 'rgba(6, 182, 212, 0.4)',
-     background: 'rgba(6, 182, 212, 0.06)',
-     zIndex: 10,
-   },
-   vectorItemSelected: {
-     borderColor: '#06b6d4',
-     background: 'rgba(6, 182, 212, 0.1)',
-     zIndex: 20,
-   },
-   vectorItemName: {
-     fontSize: '9px',
-     fontWeight: 400,
-     color: '#a1a1aa',
-     textAlign: 'center' as const,
-     padding: '2px 4px',
-     whiteSpace: 'nowrap' as const,
-     overflow: 'hidden',
-     textOverflow: 'ellipsis',
-     maxWidth: '100%',
-     zIndex: 2,
-   },
-   vectorItemNameSelected: {
-     color: '#67e8f9',
-   },
-   // SVG 预览背景 - 原版样式
-   vectorSvgPreview: {
-     position: 'absolute' as const,
-     top: 0,
-     left: 0,
-     width: '100%',
-     height: '100%',
-     backgroundSize: 'contain',
-     backgroundPosition: 'center',
-     backgroundRepeat: 'no-repeat',
-     opacity: 0.3,
-     pointerEvents: 'none' as const,
-     zIndex: 1,
-   },
-   vectorSvgPreviewHover: {
-     opacity: 0.5,
-   },
-   vectorSvgPreviewSelected: {
-     opacity: 0.6,
-   },
-   // 序号徽章 - 原版轻量级样式
-   vectorOrderBadge: {
-     position: 'absolute' as const,
-     top: '2px',
-     right: '2px',
-     width: '16px',
-     height: '16px',
-     borderRadius: '50%',
-     background: 'transparent',
-     border: '1px solid #06b6d4',
-     color: '#06b6d4',
-     fontSize: '8px',
-     fontWeight: 700,
-     display: 'flex',
-     alignItems: 'center',
-     justifyContent: 'center',
-     opacity: 0.9,
-     zIndex: 3,
-   },
-   // 幽灵序号（hover时显示）- 原版轻量级样式
-   vectorGhostBadge: {
-     position: 'absolute' as const,
-     top: '2px',
-     right: '2px',
-     width: '16px',
-     height: '16px',
-     borderRadius: '50%',
-     background: 'transparent',
-     border: '1px dashed #71717a',
-     color: '#71717a',
-     fontSize: '8px',
-     fontWeight: 600,
-     display: 'flex',
-     alignItems: 'center',
-     justifyContent: 'center',
-     opacity: 0,
-     transition: 'opacity 0.2s',
-     zIndex: 3,
-   },
-   vectorGhostBadgeVisible: {
-     opacity: 1,
-   },
-   orderBar: {
-     display: 'flex',
-     alignItems: 'center',
-     gap: SEMANTIC_TOKENS.spacing['2'],
-     padding: `${SEMANTIC_TOKENS.spacing['2.5']} ${SEMANTIC_TOKENS.spacing['3']}`,
-     borderTop: `${SEMANTIC_TOKENS.border.width.thin} solid ${SEMANTIC_TOKENS.color.border.weak}`,
-     background: SEMANTIC_TOKENS.color.bg.interactive.hover,
-     color: SEMANTIC_TOKENS.color.text.secondary,
-     fontSize: SEMANTIC_TOKENS.typography.fontSize.xs,
-   },
-   dangerBtn: {
-     borderColor: SEMANTIC_TOKENS.color.border.danger,
-     color: SEMANTIC_TOKENS.color.text.danger,
-     background: SEMANTIC_TOKENS.color.bg.accent.red,
-   },
-   thumbnails: {
-     borderTop: `${SEMANTIC_TOKENS.border.width.thin} solid ${SEMANTIC_TOKENS.color.border.weak}`,
-     background: SEMANTIC_TOKENS.color.surface.overlay,
-     backdropFilter: 'blur(10px)',
-   },
-   thumbnailsHeader: {
-     display: 'flex',
-     alignItems: 'center',
-     justifyContent: 'space-between',
-     padding: '10px 12px',
-   },
-   thumbnailsTitle: {
-     fontSize: '11px',
-     fontWeight: 600,
-     color: 'rgba(244, 244, 245, 0.95)',
-   },
-   thumbnailsGrid: {
-     display: 'grid',
-     gridTemplateColumns: 'repeat(6, minmax(0, 1fr))',
-     gap: '8px',
-     padding: '0 12px 12px 12px',
-     overflowX: 'auto' as const,
-   },
-   thumb: {
-     borderRadius: '12px',
-     border: '1px solid rgba(255, 255, 255, 0.10)',
-     background: 'rgba(255, 255, 255, 0.04)',
-     padding: '8px',
-     cursor: 'pointer',
-     minWidth: '92px',
-   },
-   thumbPreview: {
-     height: '44px',
-     borderRadius: '10px',
-     display: 'grid',
-     placeItems: 'center',
-     background: 'rgba(0, 0, 0, 0.25)',
-     border: '1px solid rgba(255, 255, 255, 0.06)',
-     marginBottom: '6px',
-   },
-   thumbName: {
-     fontSize: '10px',
-     color: 'rgba(228, 228, 231, 0.92)',
-     whiteSpace: 'nowrap' as const,
-     overflow: 'hidden',
-     textOverflow: 'ellipsis',
-   },
-   footer: {
-     display: 'flex',
-     alignItems: 'center',
-     justifyContent: 'space-between',
-     padding: '10px 12px',
-     borderTop: '1px solid rgba(255, 255, 255, 0.08)',
-     background: 'rgba(15, 15, 18, 0.72)',
-     backdropFilter: 'blur(10px)',
-   },
-   status: {
-     display: 'flex',
-     alignItems: 'center',
-     gap: '8px',
-     color: 'rgba(228, 228, 231, 0.92)',
-     fontSize: '11px',
-   },
-   statusDot: {
-     width: '8px',
-     height: '8px',
-     borderRadius: '999px',
-   },
-   info: {
-     color: 'rgba(161, 161, 170, 0.95)',
-     fontSize: '11px',
-     fontVariantNumeric: 'tabular-nums' as const,
-   },
-   // 折叠线样式
-   foldEdge: {
-     position: 'absolute' as const,
-     pointerEvents: 'none' as const,
-     zIndex: 50,
-   },
-   foldEdgeHorizontal: {
-     height: '2px',
-     background: '#ec4899',
-     boxShadow: '0 0 4px rgba(236, 72, 153, 0.5)',
-   },
-   foldEdgeVertical: {
-     width: '2px',
-     background: '#10b981',
-     boxShadow: '0 0 4px rgba(16, 185, 129, 0.5)',
-   },
-   // SVG 预览样式
-   svgPreview: {
-     position: 'absolute' as const,
-     inset: 0,
-     display: 'flex',
-     alignItems: 'center',
-     justifyContent: 'center',
-     overflow: 'hidden',
-   },
-   svgPreviewImg: {
-     maxWidth: '100%',
-     maxHeight: '100%',
-     objectFit: 'contain' as const,
-   },
-   // Clipmask 蓝色边框
-   clipmaskBorder: {
-     border: '2px solid #3b82f6',
-     boxShadow: '0 0 8px rgba(59, 130, 246, 0.4)',
-   },
- };
+const styles = {
+  root: {
+    position: 'relative' as const,
+    width: '100%',
+    height: '100%',
+    overflow: 'hidden',
+    background: 'transparent',
+  },
+  header: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: `${SEMANTIC_TOKENS.spacing.component.md} ${SEMANTIC_TOKENS.spacing.component.lg}`,
+    borderBottom: `${SEMANTIC_TOKENS.border.width.thin} solid ${SEMANTIC_TOKENS.color.border.default}`,
+    background: SEMANTIC_TOKENS.color.surface.overlay,
+    backdropFilter: 'blur(10px)',
+  },
+  logoSection: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '8px',
+    minWidth: 0,
+  },
+  logoIcon: {
+    width: '24px',
+    height: '24px',
+    borderRadius: SEMANTIC_TOKENS.border.radius.sm,
+    display: 'grid',
+    placeItems: 'center',
+    background: SEMANTIC_TOKENS.color.bg.interactive.default,
+    border: `${SEMANTIC_TOKENS.border.width.thin} solid ${SEMANTIC_TOKENS.color.border.default}`,
+    boxShadow: SEMANTIC_TOKENS.shadow.md,
+    flexShrink: 0,
+  },
+  logoText: {
+    display: 'flex',
+    flexDirection: 'column' as const,
+    gap: '2px',
+    minWidth: 0,
+  },
+  logoTitle: {
+    fontSize: SEMANTIC_TOKENS.typography.fontSize.xs,
+    lineHeight: 1.1,
+    fontWeight: SEMANTIC_TOKENS.typography.fontWeight.semibold,
+    letterSpacing: '0.2px',
+    color: SEMANTIC_TOKENS.color.text.primary,
+    whiteSpace: 'nowrap' as const,
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+  },
+  logoSubtitle: {
+    fontSize: SEMANTIC_TOKENS.typography.fontSize.micro,
+    lineHeight: 1.2,
+    color: SEMANTIC_TOKENS.color.text.tertiary,
+    whiteSpace: 'nowrap' as const,
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+  },
+  content: {
+    position: 'absolute' as const,
+    inset: 0,
+    overflow: 'hidden',
+  },
+  placeholder: {
+    position: 'absolute' as const,
+    inset: 0,
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: SEMANTIC_TOKENS.spacing.component.xl,
+    color: SEMANTIC_TOKENS.color.text.tertiary,
+  },
+  placeholderCard: {
+    width: 'min(520px, 92%)',
+    borderRadius: SEMANTIC_TOKENS.border.radius.lg,
+    border: `${SEMANTIC_TOKENS.border.width.thin} dashed ${SEMANTIC_TOKENS.color.border.weak}`,
+    background: SEMANTIC_TOKENS.color.bg.interactive.default,
+    boxShadow: SEMANTIC_TOKENS.shadow.lg,
+    padding: '22px 18px',
+    display: 'flex',
+    flexDirection: 'column' as const,
+    alignItems: 'center',
+    gap: SEMANTIC_TOKENS.spacing.component.md,
+    textAlign: 'center' as const,
+  },
+  placeholderIcon: {
+    fontSize: '28px',
+    lineHeight: 1,
+    filter: SEMANTIC_TOKENS.shadow.md,
+  },
+  placeholderText: {
+    fontSize: SEMANTIC_TOKENS.typography.fontSize.xs,
+    lineHeight: 1.5,
+    color: SEMANTIC_TOKENS.color.text.secondary,
+  },
+  vectorContainer: {
+    display: 'flex',
+    flexDirection: 'column' as const,
+    gap: '8px',
+    padding: '8px',
+    flex: 1,
+    minHeight: 0,
+    overflow: 'hidden',
+  },
+  vectorCard: {
+    flex: 1,
+    display: 'flex',
+    flexDirection: 'column' as const,
+    minHeight: 0,
+    borderRadius: SEMANTIC_TOKENS.border.radius.lg,
+    border: `${SEMANTIC_TOKENS.border.width.thin} solid ${SEMANTIC_TOKENS.color.border.default}`,
+    background: SEMANTIC_TOKENS.color.surface.overlay,
+    backdropFilter: 'blur(10px)',
+    boxShadow: SEMANTIC_TOKENS.shadow.lg,
+    overflow: 'hidden',
+  },
+  vectorHeader: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: SEMANTIC_TOKENS.spacing.component.md,
+    padding: `${SEMANTIC_TOKENS.spacing.component.sm} ${SEMANTIC_TOKENS.spacing.component.lg}`,
+    borderBottom: `${SEMANTIC_TOKENS.border.width.thin} solid ${SEMANTIC_TOKENS.color.border.default}`,
+  },
+  vectorTitle: {
+    fontSize: SEMANTIC_TOKENS.typography.fontSize.xs,
+    fontWeight: SEMANTIC_TOKENS.typography.fontWeight.semibold,
+    color: SEMANTIC_TOKENS.color.text.primary,
+    letterSpacing: '0.2px',
+  },
+  vectorHint: {
+    marginLeft: 'auto',
+    fontSize: SEMANTIC_TOKENS.typography.fontSize.micro,
+    color: SEMANTIC_TOKENS.color.text.tertiary,
+    whiteSpace: 'nowrap' as const,
+  },
+  buttonGhost: {
+    appearance: 'none' as const,
+    background: SEMANTIC_TOKENS.color.bg.interactive.default,
+    border: `${SEMANTIC_TOKENS.border.width.thin} solid ${SEMANTIC_TOKENS.color.border.default}`,
+    color: SEMANTIC_TOKENS.color.text.primary,
+    borderRadius: SEMANTIC_TOKENS.border.radius.md,
+    padding: `${SEMANTIC_TOKENS.spacing.component.sm} ${SEMANTIC_TOKENS.spacing.component.md}`,
+    cursor: 'pointer',
+    fontSize: SEMANTIC_TOKENS.typography.fontSize.xs,
+    lineHeight: 1,
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: SEMANTIC_TOKENS.spacing.component.sm,
+    flexShrink: 0,
+  },
+  canvasArea: {
+    position: 'absolute' as const,
+    inset: 0,
+    overflow: 'hidden',
+    background: COMPONENT_TOKENS.canvas.bg.area,
+  },
+  canvasSurface: {
+    position: 'relative' as const,
+    width: '100%',
+    height: '100%',
+    borderRadius: SEMANTIC_TOKENS.border.radius.lg,
+    border: `1px solid ${COMPONENT_TOKENS.canvas.border.surface}`,
+    background: COMPONENT_TOKENS.canvas.bg.surface,
+    overflow: 'hidden',
+  },
+  canvasControls: {
+    position: 'absolute' as const,
+    top: '8px',
+    left: '8px',
+    zIndex: 5,
+    display: 'flex',
+    alignItems: 'center',
+    gap: '4px',
+    padding: '4px 6px',
+    borderRadius: '8px',
+    border: '1px solid rgba(255, 255, 255, 0.1)',
+    background: 'rgba(18, 18, 22, 0.85)',
+    backdropFilter: 'blur(12px)',
+    boxShadow: '0 2px 8px rgba(0, 0, 0, 0.3)',
+  },
+  canvasBtn: {
+    width: '20px',
+    height: '20px',
+    borderRadius: '4px',
+    border: 'none',
+    background: 'transparent',
+    color: SEMANTIC_TOKENS.color.text.secondary,
+    cursor: 'pointer',
+    fontSize: '11px',
+    lineHeight: 1,
+    display: 'grid',
+    placeItems: 'center',
+  },
+  canvasZoom: {
+    minWidth: '32px',
+    textAlign: 'center' as const,
+    fontSize: '10px',
+    color: SEMANTIC_TOKENS.color.text.secondary,
+    fontVariantNumeric: 'tabular-nums' as const,
+    fontFamily: 'monospace',
+  },
+  spatialViewport: {
+    position: 'absolute' as const,
+    inset: 0,
+    transformOrigin: '0 0',
+  },
+  // Vector 卡片 - 原版轻量级样式（性能优化）
+  vectorItem: {
+    position: 'absolute' as const,
+    borderRadius: '4px',
+    border: '1px solid rgba(255, 255, 255, 0.12)',
+    background: 'rgba(255, 255, 255, 0.03)',
+    cursor: 'pointer',
+    transition: 'all 0.15s ease',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
+  },
+  vectorItemHover: {
+    borderColor: 'rgba(6, 182, 212, 0.4)',
+    background: 'rgba(6, 182, 212, 0.06)',
+    zIndex: 10,
+  },
+  vectorItemSelected: {
+    borderColor: '#06b6d4',
+    background: 'rgba(6, 182, 212, 0.1)',
+    zIndex: 20,
+  },
+  vectorItemName: {
+    fontSize: '9px',
+    fontWeight: 400,
+    color: '#a1a1aa',
+    textAlign: 'center' as const,
+    padding: '2px 4px',
+    whiteSpace: 'nowrap' as const,
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    maxWidth: '100%',
+    zIndex: 2,
+  },
+  vectorItemNameSelected: {
+    color: '#67e8f9',
+  },
+  // SVG 预览背景 - 原版样式
+  vectorSvgPreview: {
+    position: 'absolute' as const,
+    top: 0,
+    left: 0,
+    width: '100%',
+    height: '100%',
+    backgroundSize: 'contain',
+    backgroundPosition: 'center',
+    backgroundRepeat: 'no-repeat',
+    opacity: 0.3,
+    pointerEvents: 'none' as const,
+    zIndex: 1,
+  },
+  vectorSvgPreviewHover: {
+    opacity: 0.5,
+  },
+  vectorSvgPreviewSelected: {
+    opacity: 0.6,
+  },
+  // 序号徽章 - 原版轻量级样式
+  vectorOrderBadge: {
+    position: 'absolute' as const,
+    top: '2px',
+    right: '2px',
+    width: '16px',
+    height: '16px',
+    borderRadius: '50%',
+    background: 'transparent',
+    border: '1px solid #06b6d4',
+    color: '#06b6d4',
+    fontSize: '8px',
+    fontWeight: 700,
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    opacity: 0.9,
+    zIndex: 3,
+  },
+  // 幽灵序号（hover时显示）- 原版轻量级样式
+  vectorGhostBadge: {
+    position: 'absolute' as const,
+    top: '2px',
+    right: '2px',
+    width: '16px',
+    height: '16px',
+    borderRadius: '50%',
+    background: 'transparent',
+    border: '1px dashed #71717a',
+    color: '#71717a',
+    fontSize: '8px',
+    fontWeight: 600,
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    opacity: 0,
+    transition: 'opacity 0.2s',
+    zIndex: 3,
+  },
+  vectorGhostBadgeVisible: {
+    opacity: 1,
+  },
+  orderBar: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: SEMANTIC_TOKENS.spacing['2'],
+    padding: `${SEMANTIC_TOKENS.spacing['2.5']} ${SEMANTIC_TOKENS.spacing['3']}`,
+    borderTop: `${SEMANTIC_TOKENS.border.width.thin} solid ${SEMANTIC_TOKENS.color.border.weak}`,
+    background: SEMANTIC_TOKENS.color.bg.interactive.hover,
+    color: SEMANTIC_TOKENS.color.text.secondary,
+    fontSize: SEMANTIC_TOKENS.typography.fontSize.xs,
+  },
+  dangerBtn: {
+    borderColor: SEMANTIC_TOKENS.color.border.danger,
+    color: SEMANTIC_TOKENS.color.text.danger,
+    background: SEMANTIC_TOKENS.color.bg.accent.red,
+  },
+  thumbnails: {
+    borderTop: `${SEMANTIC_TOKENS.border.width.thin} solid ${SEMANTIC_TOKENS.color.border.weak}`,
+    background: SEMANTIC_TOKENS.color.surface.overlay,
+    backdropFilter: 'blur(10px)',
+  },
+  thumbnailsHeader: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: '10px 12px',
+  },
+  thumbnailsTitle: {
+    fontSize: '11px',
+    fontWeight: 600,
+    color: 'rgba(244, 244, 245, 0.95)',
+  },
+  thumbnailsGrid: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(6, minmax(0, 1fr))',
+    gap: '8px',
+    padding: '0 12px 12px 12px',
+    overflowX: 'auto' as const,
+  },
+  thumb: {
+    borderRadius: '12px',
+    border: '1px solid rgba(255, 255, 255, 0.10)',
+    background: 'rgba(255, 255, 255, 0.04)',
+    padding: '8px',
+    cursor: 'pointer',
+    minWidth: '92px',
+  },
+  thumbPreview: {
+    height: '44px',
+    borderRadius: '10px',
+    display: 'grid',
+    placeItems: 'center',
+    background: 'rgba(0, 0, 0, 0.25)',
+    border: '1px solid rgba(255, 255, 255, 0.06)',
+    marginBottom: '6px',
+  },
+  thumbName: {
+    fontSize: '10px',
+    color: 'rgba(228, 228, 231, 0.92)',
+    whiteSpace: 'nowrap' as const,
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+  },
+  footer: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: '10px 12px',
+    borderTop: '1px solid rgba(255, 255, 255, 0.08)',
+    background: 'rgba(15, 15, 18, 0.72)',
+    backdropFilter: 'blur(10px)',
+  },
+  status: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '8px',
+    color: 'rgba(228, 228, 231, 0.92)',
+    fontSize: '11px',
+  },
+  statusDot: {
+    width: '8px',
+    height: '8px',
+    borderRadius: '999px',
+  },
+  info: {
+    color: 'rgba(161, 161, 170, 0.95)',
+    fontSize: '11px',
+    fontVariantNumeric: 'tabular-nums' as const,
+  },
+  // 折叠线样式
+  foldEdge: {
+    position: 'absolute' as const,
+    pointerEvents: 'none' as const,
+    zIndex: 50,
+  },
+  foldEdgeHorizontal: {
+    height: '2px',
+    background: '#ec4899',
+    boxShadow: '0 0 4px rgba(236, 72, 153, 0.5)',
+  },
+  foldEdgeVertical: {
+    width: '2px',
+    background: '#10b981',
+    boxShadow: '0 0 4px rgba(16, 185, 129, 0.5)',
+  },
+  // SVG 预览样式
+  svgPreview: {
+    position: 'absolute' as const,
+    inset: 0,
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
+  },
+  svgPreviewImg: {
+    maxWidth: '100%',
+    maxHeight: '100%',
+    objectFit: 'contain' as const,
+  },
+  // Clipmask 蓝色边框
+  clipmaskBorder: {
+    border: '2px solid #3b82f6',
+    boxShadow: '0 0 8px rgba(59, 130, 246, 0.4)',
+  },
+};
 
 export const ViewportArea = memo(function ViewportArea() {
   // 使用 useShallow 优化状态订阅，避免不必要的重渲染
@@ -900,10 +900,14 @@ export const ViewportArea = memo(function ViewportArea() {
   const pendingZoomRef = useRef<number | null>(null);
 
   const handleWheelNative = useCallback((e: WheelEvent) => {
+    // 3D 模式下不处理滚轮事件，交给 OrbitControls
+    if (viewMode === '3d') return;
+
     e.preventDefault();
     const now = Date.now();
     // 节流：每 32ms 最多处理一次（约 30fps）
     if (now - wheelThrottleRef.current < 32) return;
+
     wheelThrottleRef.current = now;
 
     const delta = e.deltaY > 0 ? 0.92 : 1.08;
@@ -1097,97 +1101,97 @@ export const ViewportArea = memo(function ViewportArea() {
                 transition: 'none',
               }}
             >
-                    {/* 渲染矢量图层 - 使用优化的 VectorCard 组件 */}
-                    {filteredVectors.map((layer) => {
-                      // 计算缩放后的位置 - 原版逻辑
-                      const scale = fitScale * zoom / 100;
-                      const lx = (layer as any).x ?? layer.bounds?.x ?? 0;
-                      const ly = (layer as any).y ?? layer.bounds?.y ?? 0;
-                      const lw = (layer as any).width ?? layer.bounds?.width ?? 100;
-                      const lh = (layer as any).height ?? layer.bounds?.height ?? 50;
-                      const { bounds } = layoutInfo;
+              {/* 渲染矢量图层 - 使用优化的 VectorCard 组件 */}
+              {filteredVectors.map((layer) => {
+                // 计算缩放后的位置 - 原版逻辑
+                const scale = fitScale * zoom / 100;
+                const lx = (layer as any).x ?? layer.bounds?.x ?? 0;
+                const ly = (layer as any).y ?? layer.bounds?.y ?? 0;
+                const lw = (layer as any).width ?? layer.bounds?.width ?? 100;
+                const lh = (layer as any).height ?? layer.bounds?.height ?? 50;
+                const { bounds } = layoutInfo;
 
-                      const scaledPosition = {
-                        left: (lx - bounds.minX) * scale,
-                        top: (ly - bounds.minY) * scale,
-                        width: Math.max(lw * scale, 20),
-                        height: Math.max(lh * scale, 20),
-                      };
+                const scaledPosition = {
+                  left: (lx - bounds.minX) * scale,
+                  top: (ly - bounds.minY) * scale,
+                  width: Math.max(lw * scale, 20),
+                  height: Math.max(lh * scale, 20),
+                };
 
-                      const sequenceIndex = foldSequence.indexOf(layer.id);
-                      const isOrdered = sequenceIndex !== -1;
-                      const isReplacing = isOrdered && replacingIndex === sequenceIndex;
-                      const isSwapMode = replacingIndex !== null;
-                      const swapNum = isSwapMode ? replacingIndex + 1 : undefined;
+                const sequenceIndex = foldSequence.indexOf(layer.id);
+                const isOrdered = sequenceIndex !== -1;
+                const isReplacing = isOrdered && replacingIndex === sequenceIndex;
+                const isSwapMode = replacingIndex !== null;
+                const swapNum = isSwapMode ? replacingIndex + 1 : undefined;
 
-                      return (
-                        <VectorCard
-                          key={layer.id}
-                          layer={layer}
-                          isHovered={hoveredId === layer.id}
-                          isOrdered={isOrdered}
-                          isReplacing={isReplacing}
-                          orderNum={isOrdered ? sequenceIndex + 1 : undefined}
-                          nextNum={nextDisplayNumber}
-                          swapNum={swapNum}
-                          isSwapMode={isSwapMode}
-                          isClipMask={layer.name?.toLowerCase().includes('clipmask') || layer.craftType === 'CLIPMASK'}
-                          isHPanel={hPanelId === layer.id}
-                          displayName={panelNameMap[layer.id] || layer.name}
-                          scaledPosition={scaledPosition}
-                          onVectorClick={onVectorClick}
-                          onVectorDoubleClick={handleVectorDoubleClick}
-                          onMouseEnter={setHoveredId}
-                          onMouseLeave={() => setHoveredId(null)}
-                        />
-                      );
-                    })}
+                return (
+                  <VectorCard
+                    key={layer.id}
+                    layer={layer}
+                    isHovered={hoveredId === layer.id}
+                    isOrdered={isOrdered}
+                    isReplacing={isReplacing}
+                    orderNum={isOrdered ? sequenceIndex + 1 : undefined}
+                    nextNum={nextDisplayNumber}
+                    swapNum={swapNum}
+                    isSwapMode={isSwapMode}
+                    isClipMask={layer.name?.toLowerCase().includes('clipmask') || layer.craftType === 'CLIPMASK'}
+                    isHPanel={hPanelId === layer.id}
+                    displayName={panelNameMap[layer.id] || layer.name}
+                    scaledPosition={scaledPosition}
+                    onVectorClick={onVectorClick}
+                    onVectorDoubleClick={handleVectorDoubleClick}
+                    onMouseEnter={setHoveredId}
+                    onMouseLeave={() => setHoveredId(null)}
+                  />
+                );
+              })}
 
-                    {/* 渲染折叠线 - 使用自动检测的折叠线 */}
-                    {detectedFoldEdges.map((edge) => {
-                      const isHorizontal = edge.type === 'horizontal';
-                      // 只有在编辑模式下才显示 hover 效果
-                      const isEdgeHovered = foldEdgeEditMode && hoveredEdgeId === edge.id;
+              {/* 渲染折叠线 - 使用自动检测的折叠线 */}
+              {detectedFoldEdges.map((edge) => {
+                const isHorizontal = edge.type === 'horizontal';
+                // 只有在编辑模式下才显示 hover 效果
+                const isEdgeHovered = foldEdgeEditMode && hoveredEdgeId === edge.id;
 
-                      // 计算缩放后的位置 - 与 VectorCard 一致
-                      const scale = fitScale * zoom / 100;
-                      const { bounds } = layoutInfo;
-                      const left = (edge.x - bounds.minX) * scale;
-                      const top = (edge.y - bounds.minY) * scale;
-                      const width = isHorizontal ? edge.width * scale : 4;
-                      const height = isHorizontal ? 4 : edge.height * scale;
+                // 计算缩放后的位置 - 与 VectorCard 一致
+                const scale = fitScale * zoom / 100;
+                const { bounds } = layoutInfo;
+                const left = (edge.x - bounds.minX) * scale;
+                const top = (edge.y - bounds.minY) * scale;
+                const width = isHorizontal ? edge.width * scale : 4;
+                const height = isHorizontal ? 4 : edge.height * scale;
 
-                      // hover 时增加线宽和亮度（仅编辑模式）
-                      const hoverWidth = isHorizontal ? width : (isEdgeHovered ? 6 : 4);
-                      const hoverHeight = isHorizontal ? (isEdgeHovered ? 6 : 4) : height;
+                // hover 时增加线宽和亮度（仅编辑模式）
+                const hoverWidth = isHorizontal ? width : (isEdgeHovered ? 6 : 4);
+                const hoverHeight = isHorizontal ? (isEdgeHovered ? 6 : 4) : height;
 
-                      return (
-                        <div
-                          key={edge.id}
-                          data-fold-edge
-                          style={{
-                            ...styles.foldEdge,
-                            ...(isHorizontal ? styles.foldEdgeHorizontal : styles.foldEdgeVertical),
-                            left: isHorizontal ? left : (left - (isEdgeHovered ? 1 : 0)),
-                            top: isHorizontal ? (top - (isEdgeHovered ? 1 : 0)) : top,
-                            width: hoverWidth,
-                            height: hoverHeight,
-                            cursor: foldEdgeEditMode ? 'pointer' : 'default',
-                            pointerEvents: foldEdgeEditMode ? 'auto' : 'none',
-                            opacity: isEdgeHovered ? 1 : 0.8,
-                            boxShadow: isEdgeHovered
-                              ? (isHorizontal ? '0 0 12px rgba(236, 72, 153, 0.8)' : '0 0 12px rgba(16, 185, 129, 0.8)')
-                              : (isHorizontal ? '0 0 4px rgba(236, 72, 153, 0.5)' : '0 0 4px rgba(16, 185, 129, 0.5)'),
-                            zIndex: isEdgeHovered ? 60 : 50,
-                          }}
-                          title={foldEdgeEditMode ? `${edge.id} (${edge.foldAngle}°) - 右键删除` : `${edge.id} (${edge.foldAngle}°)`}
-                          onMouseEnter={() => foldEdgeEditMode && setHoveredEdgeId(edge.id)}
-                          onMouseLeave={() => foldEdgeEditMode && setHoveredEdgeId(null)}
-                          onContextMenu={(e) => foldEdgeEditMode && handleFoldEdgeRightClick(edge.id, e)}
-                        />
-                      );
-                    })}
-                  </div>
+                return (
+                  <div
+                    key={edge.id}
+                    data-fold-edge
+                    style={{
+                      ...styles.foldEdge,
+                      ...(isHorizontal ? styles.foldEdgeHorizontal : styles.foldEdgeVertical),
+                      left: isHorizontal ? left : (left - (isEdgeHovered ? 1 : 0)),
+                      top: isHorizontal ? (top - (isEdgeHovered ? 1 : 0)) : top,
+                      width: hoverWidth,
+                      height: hoverHeight,
+                      cursor: foldEdgeEditMode ? 'pointer' : 'default',
+                      pointerEvents: foldEdgeEditMode ? 'auto' : 'none',
+                      opacity: isEdgeHovered ? 1 : 0.8,
+                      boxShadow: isEdgeHovered
+                        ? (isHorizontal ? '0 0 12px rgba(236, 72, 153, 0.8)' : '0 0 12px rgba(16, 185, 129, 0.8)')
+                        : (isHorizontal ? '0 0 4px rgba(236, 72, 153, 0.5)' : '0 0 4px rgba(16, 185, 129, 0.5)'),
+                      zIndex: isEdgeHovered ? 60 : 50,
+                    }}
+                    title={foldEdgeEditMode ? `${edge.id} (${edge.foldAngle}°) - 右键删除` : `${edge.id} (${edge.foldAngle}°)`}
+                    onMouseEnter={() => foldEdgeEditMode && setHoveredEdgeId(edge.id)}
+                    onMouseLeave={() => foldEdgeEditMode && setHoveredEdgeId(null)}
+                    onContextMenu={(e) => foldEdgeEditMode && handleFoldEdgeRightClick(edge.id, e)}
+                  />
+                );
+              })}
+            </div>
           </div>
         )}
 
