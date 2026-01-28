@@ -31,6 +31,7 @@ export const GroundProjectedEnv: React.FC<GroundProjectedEnvProps> = ({
   const safeRadius = Math.max(1, radius, height * 1.05);
 
   const tempAnchorRef = useMemo(() => new THREE.Vector3(), []);
+  const tempVirtualCamRef = useMemo(() => new THREE.Vector3(), []);
 
   // 修复：当外部 scale prop 变化时（例如从 1000 变为 5000），更新 dynamicScale
   useEffect(() => {
@@ -67,7 +68,11 @@ export const GroundProjectedEnv: React.FC<GroundProjectedEnvProps> = ({
     skybox.position.set(ax, anchorY, az);
     tempAnchorRef.set(ax, anchorY, az);
     skybox.center = tempAnchorRef;
-    skybox.virtualCameraPosition = tempAnchorRef;
+
+    // 关键：XZ 锚定到 orbit pivot，Y 使用真实相机高度。
+    // 这样可以避免 orbit 绕圈时投影基准漂移，同时避免把相机“锁死在球心”导致采样退化（黑/纯色地面）。
+    tempVirtualCamRef.set(ax, camera.position.y, az);
+    skybox.virtualCameraPosition = tempVirtualCamRef;
   });
 
   useEffect(() => {
