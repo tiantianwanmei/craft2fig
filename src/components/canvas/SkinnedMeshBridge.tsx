@@ -4,11 +4,13 @@
  */
 
 import React, { useMemo, useEffect, useState } from 'react';
+import { useShallow } from 'zustand/react/shallow';
 import type * as THREE from 'three';
 import { SkinnedFoldingMesh, TextureAtlasBuilder } from '@genki/folding-3d';
 import type { PanelNode, TextureAtlasResult, FoldTimingConfig } from '@genki/folding-3d';
 import type { MarkedLayer } from '../../types/core';
 import { convertToPanelTree } from '../../utils/panelTreeConverter';
+import { useAppStore } from '../../store';
 import { usePBRMapsFromCraftLayers, type CraftPBRConfig, type DieBounds, DEFAULT_CRAFT_PBR_CONFIG } from '../../hooks/usePBRMapsFromCraftLayers';
 // import { PanelScaler } from '../../utils/PanelScaler';
 
@@ -61,6 +63,13 @@ export interface SkinnedMeshBridgeProps {
   yAxisMultiplier?: number;
   /** 🆕 嵌套深度因子 */
   nestingFactor?: number;
+
+  /** 🆕 根骨骼变换 */
+  rootBoneTransform?: {
+    scale?: number;
+    rotation?: [number, number, number];
+    position?: [number, number, number];
+  };
 }
 
 /** 默认渲染配置 */
@@ -151,7 +160,22 @@ export const SkinnedMeshBridge: React.FC<SkinnedMeshBridgeProps> = ({
   xAxisMultiplier = 1.0,
   yAxisMultiplier = 1.15,
   nestingFactor = 0.15,
+  rootBoneTransform,
 }) => {
+  const {
+    sourceFrameImage,
+    sourceFrameWidth,
+    sourceFrameHeight,
+    sourceFrameX,
+    sourceFrameY
+  } = useAppStore(useShallow(state => ({
+    sourceFrameImage: state.sourceFrameImage,
+    sourceFrameWidth: state.sourceFrameWidth,
+    sourceFrameHeight: state.sourceFrameHeight,
+    sourceFrameX: state.sourceFrameX,
+    sourceFrameY: state.sourceFrameY,
+  })));
+
   const [textureAtlas, setTextureAtlas] = useState<TextureAtlasResult | null>(null);
 
   // 🔧 简化的 gap 处理：只计算 multiplier，不修改树结构
@@ -291,6 +315,19 @@ export const SkinnedMeshBridge: React.FC<SkinnedMeshBridgeProps> = ({
     };
   }, []);
 
+  // 🚀 计算全局贴图的相关信息
+  const frameTextureInfo = useMemo(() => {
+    if (!sourceFrameImage || !sourceFrameWidth || !sourceFrameHeight) return undefined;
+
+    return {
+      image: sourceFrameImage,
+      width: sourceFrameWidth,
+      height: sourceFrameHeight,
+      offsetX: originX - sourceFrameX,
+      offsetY: originY - sourceFrameY,
+    };
+  }, [sourceFrameImage, sourceFrameWidth, sourceFrameHeight, sourceFrameX, sourceFrameY, originX, originY]);
+
   // 检查是否有有效的 PBR 贴图
   const hasPbrMaps = !!(pbrMaps.metalnessMap || pbrMaps.roughnessMap || pbrMaps.clearcoatMap);
 
@@ -333,6 +370,8 @@ export const SkinnedMeshBridge: React.FC<SkinnedMeshBridgeProps> = ({
         xAxisMultiplier={xAxisMultiplier}
         yAxisMultiplier={yAxisMultiplier}
         nestingFactor={nestingFactor}
+        rootBoneTransform={rootBoneTransform}
+        frameTextureInfo={frameTextureInfo}
         materialProps={{
           // 
           roughness: hasPbrMaps
