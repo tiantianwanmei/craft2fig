@@ -143,7 +143,7 @@ const SceneEnvironment: React.FC = () => {
   // 启用 groundProjection 时，<GroundProjectedEnv/> 内部的 <Environment background /> 会负责渲染 HDR 背景
   // 此时再渲染手动背景球会产生叠加（历史上表现为“中间小圆球”）
   // 修复：恢复互斥逻辑，当启用 groundProjection 时，不渲染普通背景球
-  const showHDRBackground = backgroundMode === 'hdr' && hdr.showBackground && !hdr.groundProjection && !!hdrTexture;
+  const showHDRBackground = backgroundMode === 'hdr' && hdr.showBackground && !!hdrTexture;
 
   useEffect(() => {
     if (showHDRBackground) return;
@@ -191,7 +191,7 @@ const SceneEnvironment: React.FC = () => {
     const persp = camera as THREE.PerspectiveCamera;
     hdrBgRef.current.position.copy(camera.position);
     const safeFar = Number.isFinite(persp.far) ? persp.far : 5000;
-    const s = Math.max(50000, safeFar * 2);
+    const s = Math.max(1000, safeFar * 0.9);
     // 修复：保持 x 轴翻转 (-s)，否则贴图是反的，且可能导致看到球体外部
     hdrBgRef.current.scale.set(-s, s, s);
   });

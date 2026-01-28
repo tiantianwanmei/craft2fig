@@ -83,7 +83,7 @@ const SceneEnvironmentCore: React.FC = () => {
     return null;
   }, [hdrTexture, background.mode]);
 
-  const shouldShowHDRBackground = background.mode === 'hdr' && hdr.showBackground && !hdr.groundProjection;
+  const shouldShowHDRBackground = background.mode === 'hdr' && hdr.showBackground;
   const shouldRenderHDRGround = background.mode === 'hdr' && hdr.groundProjection && effectiveHDRTexture;
 
   return (
@@ -136,8 +136,8 @@ const HDRDome: React.FC<{
     if (!m) return;
     const far = (camera as THREE.PerspectiveCamera).far ?? 50000;
     m.position.copy(camera.position);
-    const s = Math.max(1000, far * 0.95);
-    m.scale.set(-s, s, s);
+    const radius = Math.max(1000, far * 0.9);
+    m.scale.set(-radius, radius, radius);
   });
 
   useEffect(() => {
@@ -497,7 +497,7 @@ export const View3D: React.FC<View3DProps> = ({ height = '100%' }) => {
           minPolarAngle={0}
           maxPolarAngle={Math.PI / 1.8}
           minDistance={5}
-          maxDistance={(background.mode === 'hdr' && hdr.groundProjection) ? Math.min(hdr.domeRadius || 5000, 50000) : 50000}
+          maxDistance={(background.mode === 'hdr' && hdr.groundProjection) ? Math.min(hdr.domeRadius || 5000, 45000) : 45000}
           enableDamping
           dampingFactor={0.1}
           rotateSpeed={1.0}
