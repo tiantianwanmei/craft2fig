@@ -143,7 +143,7 @@ const SceneEnvironment: React.FC = () => {
   // 启用 groundProjection 时，<GroundProjectedEnv/> 内部的 <Environment background /> 会负责渲染 HDR 背景
   // 此时再渲染手动背景球会产生叠加（历史上表现为“中间小圆球”）
   // 修复：恢复互斥逻辑，当启用 groundProjection 时，不渲染普通背景球
-  const showHDRBackground = backgroundMode === 'hdr' && hdr.showBackground && !hdr.groundProjection && !!hdrTexture;
+  const showHDRBackground = backgroundMode === 'hdr' && hdr.showBackground && !!hdrTexture;
 
   useEffect(() => {
     if (showHDRBackground) return;

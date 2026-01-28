@@ -1,7 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import * as THREE from 'three';
-import { Environment } from '@react-three/drei';
 import { useFrame, useThree } from '@react-three/fiber';
+import { GroundProjectedSkybox } from './GroundProjectedSkybox';
 
 interface GroundProjectedEnvProps {
   texture: THREE.Texture | null;
@@ -20,7 +20,7 @@ export const GroundProjectedEnv: React.FC<GroundProjectedEnvProps> = ({
 }) => {
   if (!texture) return null;
 
-  const { camera } = useThree();
+  const { camera, scene } = useThree();
 
   const [dynamicScale, setDynamicScale] = useState(scale);
   const baseScale = scale;
@@ -31,9 +31,8 @@ export const GroundProjectedEnv: React.FC<GroundProjectedEnvProps> = ({
   }, [scale]);
 
   useFrame(() => {
-    const far = (camera as THREE.PerspectiveCamera).far ?? 50000;
     const camDist = camera.position.length();
-    const desired = Math.max(baseScale, camDist * 4, far * 0.9);
+    const desired = Math.max(baseScale, camDist * 4);
     if (desired <= 0) return;
 
     const rel = Math.abs(desired - dynamicScale) / Math.max(1, dynamicScale);
@@ -43,15 +42,36 @@ export const GroundProjectedEnv: React.FC<GroundProjectedEnvProps> = ({
   void _exposure;
   texture.mapping = THREE.EquirectangularReflectionMapping;
 
-  return (
-    <Environment
-      map={texture}
-      background
-      ground={{
-        height,
-        radius,
-        scale: dynamicScale,
-      }}
-    />
-  );
+  const skybox = useMemo(() => {
+    const sky = new GroundProjectedSkybox(texture, { height, radius });
+    sky.frustumCulled = false;
+    sky.renderOrder = -1000;
+    const mat = sky.material as THREE.ShaderMaterial;
+    mat.depthWrite = false;
+    return sky;
+  }, [texture, height, radius]);
+
+  useEffect(() => {
+    scene.add(skybox);
+    return () => {
+      scene.remove(skybox);
+      if ('geometry' in skybox && (skybox as any).geometry?.dispose) (skybox as any).geometry.dispose();
+      if ('material' in skybox) {
+        const m = (skybox as any).material;
+        if (Array.isArray(m)) m.forEach((mm) => mm?.dispose?.());
+        else m?.dispose?.();
+      }
+    };
+  }, [scene, skybox]);
+
+  useEffect(() => {
+    skybox.height = height;
+    skybox.radius = radius;
+  }, [height, radius, skybox]);
+
+  useEffect(() => {
+    skybox.scale.setScalar(dynamicScale);
+  }, [dynamicScale, skybox]);
+
+  return null;
 };

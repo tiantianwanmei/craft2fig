@@ -83,7 +83,7 @@ const SceneEnvironmentCore: React.FC = () => {
     return null;
   }, [hdrTexture, background.mode]);
 
-  const shouldShowHDRBackground = background.mode === 'hdr' && hdr.showBackground && !hdr.groundProjection;
+  const shouldShowHDRBackground = background.mode === 'hdr' && hdr.showBackground;
   const shouldRenderHDRGround = background.mode === 'hdr' && hdr.groundProjection && effectiveHDRTexture;
 
   return (
