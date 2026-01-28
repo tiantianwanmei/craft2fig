@@ -1,7 +1,6 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useEffect, useMemo, useRef } from 'react';
 import * as THREE from 'three';
 import { useFrame, useThree } from '@react-three/fiber';
-import { GroundProjectedSkybox } from './GroundProjectedSkybox';
 
 interface GroundProjectedEnvProps {
   texture: THREE.Texture | null;
@@ -24,78 +23,123 @@ export const GroundProjectedEnv: React.FC<GroundProjectedEnvProps> = ({
 }) => {
   if (!texture) return null;
 
-  const { camera, scene } = useThree();
+  const { camera } = useThree();
 
-  const [dynamicScale, setDynamicScale] = useState(scale);
-  const baseScale = scale;
+  const planeRef = useRef<THREE.Mesh | null>(null);
+  const materialRef = useRef<THREE.ShaderMaterial | null>(null);
+
   const safeRadius = Math.max(1, radius, height * 1.05);
+  const sizeRef = useRef(scale);
 
-  const tempAnchorRef = useMemo(() => new THREE.Vector3(), []);
-  const tempVirtualCamRef = useMemo(() => new THREE.Vector3(), []);
-
-  // 修复：当外部 scale prop 变化时（例如从 1000 变为 5000），更新 dynamicScale
-  useEffect(() => {
-    setDynamicScale(scale);
-  }, [scale]);
+  const tempOriginRef = useMemo(() => new THREE.Vector3(), []);
 
   void _exposure;
   texture.mapping = THREE.EquirectangularReflectionMapping;
 
-  const skybox = useMemo(() => {
-    const sky = new GroundProjectedSkybox(texture, { height, radius: safeRadius });
-    sky.frustumCulled = false;
-    sky.renderOrder = -1500;
-    const mat = sky.material as THREE.ShaderMaterial;
-    mat.depthTest = false;
+  const shaderMaterial = useMemo(() => {
+    const isCubeMap = (texture as any).isCubeTexture;
+    const defines: string[] = [isCubeMap ? '#define ENVMAP_TYPE_CUBE' : ''];
+
+    const vertexShader = `
+      varying vec3 vWorldPosition;
+
+      void main() {
+        vec4 worldPosition = modelMatrix * vec4( position, 1.0 );
+        vWorldPosition = worldPosition.xyz;
+        gl_Position = projectionMatrix * modelViewMatrix * vec4( position, 1.0 );
+      }
+    `;
+
+    const fragmentShader = `${defines.join('\n')}
+      varying vec3 vWorldPosition;
+      uniform float radius;
+      uniform float height;
+      uniform vec3 center;
+
+      #ifdef ENVMAP_TYPE_CUBE
+        uniform samplerCube map;
+      #else
+        uniform sampler2D map;
+      #endif
+
+      #include <common>
+
+      void main() {
+        vec3 local = vWorldPosition - center;
+        local.y = -height;
+        float r = length( local.xz );
+        vec3 direction = normalize( local );
+        float edge = smoothstep( radius * 0.98, radius, r );
+        direction = normalize( mix( direction, vec3( 0.0, 1.0, 0.0 ), edge ) );
+
+        #ifdef ENVMAP_TYPE_CUBE
+          vec3 outcolor = textureCube( map, direction ).rgb;
+        #else
+          vec2 uv = equirectUv( direction );
+          vec3 outcolor = texture2D( map, uv ).rgb;
+        #endif
+
+        gl_FragColor = vec4( outcolor, 1.0 );
+        #include <tonemapping_fragment>
+        #include <colorspace_fragment>
+      }
+    `;
+
+    const mat = new THREE.ShaderMaterial({
+      uniforms: {
+        map: { value: texture },
+        radius: { value: safeRadius },
+        height: { value: height },
+        center: { value: new THREE.Vector3(0, 0, 0) },
+      },
+      vertexShader,
+      fragmentShader,
+      side: THREE.DoubleSide,
+    });
+
     mat.depthWrite = false;
-    return sky;
-  }, [texture, height, safeRadius]);
+    mat.depthTest = true;
+    return mat;
+  }, [texture, safeRadius]);
+
+  useEffect(() => {
+    materialRef.current = shaderMaterial;
+    return () => {
+      shaderMaterial.dispose();
+    };
+  }, [shaderMaterial]);
 
   useFrame(() => {
     const camDist = camera.position.length();
     const far = (camera as THREE.PerspectiveCamera).far ?? 50000;
-    const desired = Math.max(baseScale, camDist * 4);
-    const cappedDesired = Math.min(desired, Math.max(baseScale, far * 0.95));
-    if (cappedDesired <= 0) return;
-
-    const rel = Math.abs(cappedDesired - dynamicScale) / Math.max(1, dynamicScale);
-    if (rel > 0.15) setDynamicScale(cappedDesired);
-
     const anchor = anchorRef?.current;
     const ax = anchor ? anchor.x : 0;
     const az = anchor ? anchor.z : 0;
-    const anchorY = groundY + height;
-    skybox.position.set(ax, anchorY, az);
-    tempAnchorRef.set(ax, anchorY, az);
-    skybox.center = tempAnchorRef;
+    const centerY = groundY + height;
+    tempOriginRef.set(ax, centerY, az);
 
-    // 关键：XZ 锚定到 orbit pivot，Y 使用真实相机高度。
-    // 这样可以避免 orbit 绕圈时投影基准漂移，同时避免把相机“锁死在球心”导致采样退化（黑/纯色地面）。
-    tempVirtualCamRef.set(ax, camera.position.y, az);
-    skybox.virtualCameraPosition = tempVirtualCamRef;
+    const desired = Math.max(scale, camDist * 4);
+    const cappedDesired = Math.min(desired, Math.max(scale, far * 0.95));
+    if (Number.isFinite(cappedDesired) && cappedDesired > 0) sizeRef.current = cappedDesired;
+
+    const plane = planeRef.current;
+    if (plane) {
+      plane.position.set(ax, groundY, az);
+      plane.scale.set(sizeRef.current, sizeRef.current, 1);
+    }
+
+    const m = materialRef.current;
+    if (m) {
+      (m.uniforms.center.value as THREE.Vector3).copy(tempOriginRef);
+      m.uniforms.radius.value = safeRadius;
+      m.uniforms.height.value = height;
+    }
   });
 
-  useEffect(() => {
-    scene.add(skybox);
-    return () => {
-      scene.remove(skybox);
-      if ('geometry' in skybox && (skybox as any).geometry?.dispose) (skybox as any).geometry.dispose();
-      if ('material' in skybox) {
-        const m = (skybox as any).material;
-        if (Array.isArray(m)) m.forEach((mm) => mm?.dispose?.());
-        else m?.dispose?.();
-      }
-    };
-  }, [scene, skybox]);
-
-  useEffect(() => {
-    skybox.height = height;
-    skybox.radius = safeRadius;
-  }, [height, safeRadius, skybox]);
-
-  useEffect(() => {
-    skybox.scale.setScalar(dynamicScale);
-  }, [dynamicScale, skybox]);
-
-  return null;
+  return (
+    <mesh ref={planeRef} rotation={[-Math.PI / 2, 0, 0]} position={[0, groundY, 0]} frustumCulled={false}>
+      <planeGeometry args={[1, 1, 1, 1]} />
+      <primitive object={shaderMaterial} attach="material" />
+    </mesh>
+  );
 };
