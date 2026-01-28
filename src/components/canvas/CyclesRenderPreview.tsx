@@ -293,7 +293,7 @@ const CameraSetup: React.FC = () => {
       const persp = camera as THREE.PerspectiveCamera;
       persp.fov = fov;
       persp.near = 0.1;
-      persp.far = 100000;
+      persp.far = 50000;
       persp.updateProjectionMatrix();
       initialized.current = true;
     }
@@ -1029,7 +1029,9 @@ export const CyclesRenderPreview: React.FC = () => {
                     return new THREE.WebGLRenderer({
                       canvas: fallbackCanvas || undefined,
                       antialias: true,
-                      alpha: false
+                      alpha: false,
+                      powerPreference: 'high-performance',
+                      preserveDrawingBuffer: false,
                     });
                   } catch (e) {
                     console.error('❌ Cycles: Renderer Factory Error:', e);
@@ -1083,7 +1085,7 @@ export const CyclesRenderPreview: React.FC = () => {
                   powerPreference: 'high-performance',
                   antialias: true,
                   alpha: false,
-                  preserveDrawingBuffer: true,
+                  preserveDrawingBuffer: false,
                 });
               }}
               camera={{ position: [200, 150, 200], fov: 45 }}

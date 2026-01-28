@@ -57,7 +57,7 @@ const CameraSetup: React.FC = () => {
   useEffect(() => {
     if (camera instanceof THREE.PerspectiveCamera) {
       camera.near = 0.1;
-      camera.far = 1000000;
+      camera.far = 50000;
       camera.updateProjectionMatrix();
     }
   }, [camera]);
@@ -91,7 +91,7 @@ const SceneEnvironmentCore: React.FC = () => {
       {background.mode === 'solid' && <color attach="background" args={[gradedSolid]} />}
       {background.mode === 'gradient' && <GradientBackground top={gradedTop} bottom={gradedBottom} />}
 
-      <PerspectiveCamera makeDefault position={[200, 150, 200]} fov={45} near={0.1} far={1000000} />
+      <PerspectiveCamera makeDefault position={[200, 150, 200]} fov={45} near={0.1} far={50000} />
       <CameraSetup />
 
       <HDRDome
@@ -497,7 +497,7 @@ export const View3D: React.FC<View3DProps> = ({ height = '100%' }) => {
           minPolarAngle={0}
           maxPolarAngle={Math.PI / 1.8}
           minDistance={5}
-          maxDistance={(background.mode === 'hdr' && hdr.groundProjection) ? (hdr.domeRadius || 5000) : 500000}
+          maxDistance={(background.mode === 'hdr' && hdr.groundProjection) ? Math.min(hdr.domeRadius || 5000, 50000) : 50000}
           enableDamping
           dampingFactor={0.1}
           rotateSpeed={1.0}
