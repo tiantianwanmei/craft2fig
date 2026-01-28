@@ -326,6 +326,18 @@ export const View3D: React.FC<View3DProps> = ({ height = '100%' }) => {
     const controls = controlsRef.current;
     if (!controls) return;
     controls.target.set(0, ground.offsetY || 0, 0);
+    controls.enablePan = false;
+    (controls as any).keyPanSpeed = 0;
+    (controls as any).keys = { LEFT: '', UP: '', RIGHT: '', BOTTOM: '' };
+    controls.mouseButtons = {
+      LEFT: THREE.MOUSE.ROTATE,
+      MIDDLE: THREE.MOUSE.ROTATE,
+      RIGHT: THREE.MOUSE.ROTATE,
+    };
+    controls.touches = {
+      ONE: THREE.TOUCH.ROTATE,
+      TWO: THREE.TOUCH.DOLLY_ROTATE,
+    };
     controls.update();
   }, [ground.offsetY]);
 

@@ -248,7 +248,7 @@ const SceneEnvironment: React.FC = () => {
       {ground.visible && shouldRenderHDRGround && (
         <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, ground.offsetY || 0, 0]} receiveShadow>
           <planeGeometry args={[500, 500]} />
-          <shadowMaterial transparent opacity={0} />
+          <shadowMaterial transparent opacity={0} depthWrite={false} />
         </mesh>
       )}
     </>
@@ -269,7 +269,18 @@ const CustomOrbitControls: React.FC = () => {
     controlsRef.current.maxDistance = 450000;
     controlsRef.current.enableRotate = true;
     controlsRef.current.enableZoom = true;
-    controlsRef.current.enablePan = true;
+    controlsRef.current.enablePan = false;
+    (controlsRef.current as any).keyPanSpeed = 0;
+    (controlsRef.current as any).keys = { LEFT: '', UP: '', RIGHT: '', BOTTOM: '' };
+    controlsRef.current.mouseButtons = {
+      LEFT: THREE.MOUSE.ROTATE,
+      MIDDLE: THREE.MOUSE.ROTATE,
+      RIGHT: THREE.MOUSE.ROTATE,
+    };
+    controlsRef.current.touches = {
+      ONE: THREE.TOUCH.ROTATE,
+      TWO: THREE.TOUCH.DOLLY_ROTATE,
+    };
     controlsRef.current.target.set(0, groundOffsetY, 0);
     camera.lookAt(0, groundOffsetY, 0);
     return () => { controlsRef.current?.dispose(); };
