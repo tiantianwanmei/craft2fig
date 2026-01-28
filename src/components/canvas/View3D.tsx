@@ -57,7 +57,7 @@ const CameraSetup: React.FC = () => {
   useEffect(() => {
     if (camera instanceof THREE.PerspectiveCamera) {
       camera.near = 0.1;
-      camera.far = 50000;
+      camera.far = 500000;
       camera.updateProjectionMatrix();
     }
   }, [camera]);
@@ -83,7 +83,7 @@ const SceneEnvironmentCore: React.FC = () => {
     return null;
   }, [hdrTexture, background.mode]);
 
-  const shouldShowHDRBackground = background.mode === 'hdr' && hdr.showBackground;
+  const shouldShowHDRBackground = background.mode === 'hdr' && hdr.showBackground && !hdr.groundProjection;
   const shouldRenderHDRGround = background.mode === 'hdr' && hdr.groundProjection && effectiveHDRTexture;
 
   return (
@@ -91,7 +91,7 @@ const SceneEnvironmentCore: React.FC = () => {
       {background.mode === 'solid' && <color attach="background" args={[gradedSolid]} />}
       {background.mode === 'gradient' && <GradientBackground top={gradedTop} bottom={gradedBottom} />}
 
-      <PerspectiveCamera makeDefault position={[200, 150, 200]} fov={45} near={0.1} far={50000} />
+      <PerspectiveCamera makeDefault position={[200, 150, 200]} fov={45} near={0.1} far={500000} />
       <CameraSetup />
 
       <HDRDome
@@ -105,8 +105,8 @@ const SceneEnvironmentCore: React.FC = () => {
         <GroundProjectedEnv
           texture={effectiveHDRTexture}
           height={hdr.domeHeight}
-          radius={hdr.domeRadius}
-          scale={(hdr.domeRadius || 5000) * 5}
+          radius={Math.max(hdr.domeRadius || 0, 500000)}
+          scale={Math.max((hdr.domeRadius || 5000) * 5, 20000)}
           exposure={hdr.intensity}
         />
       )}
@@ -415,6 +415,7 @@ export const View3D: React.FC<View3DProps> = ({ height = '100%' }) => {
               alpha: false,
               preserveDrawingBuffer: false,
               depth: true,
+              logarithmicDepthBuffer: true,
             });
           } catch (e) {
             console.error('❌ View3D: Renderer Error:', e);
@@ -497,7 +498,7 @@ export const View3D: React.FC<View3DProps> = ({ height = '100%' }) => {
           minPolarAngle={0}
           maxPolarAngle={Math.PI / 1.8}
           minDistance={5}
-          maxDistance={(background.mode === 'hdr' && hdr.groundProjection) ? Math.min(hdr.domeRadius || 5000, 45000) : 45000}
+          maxDistance={(background.mode === 'hdr' && hdr.groundProjection) ? 450000 : 450000}
           enableDamping
           dampingFactor={0.1}
           rotateSpeed={1.0}

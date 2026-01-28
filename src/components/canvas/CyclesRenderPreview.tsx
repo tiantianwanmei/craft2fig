@@ -143,7 +143,7 @@ const SceneEnvironment: React.FC = () => {
   // 启用 groundProjection 时，<GroundProjectedEnv/> 内部的 <Environment background /> 会负责渲染 HDR 背景
   // 此时再渲染手动背景球会产生叠加（历史上表现为“中间小圆球”）
   // 修复：恢复互斥逻辑，当启用 groundProjection 时，不渲染普通背景球
-  const showHDRBackground = backgroundMode === 'hdr' && hdr.showBackground && !!hdrTexture;
+  const showHDRBackground = backgroundMode === 'hdr' && hdr.showBackground && !hdr.groundProjection && !!hdrTexture;
 
   useEffect(() => {
     if (showHDRBackground) return;
@@ -214,8 +214,8 @@ const SceneEnvironment: React.FC = () => {
           key={`${hdr.domeHeight}-${hdr.domeRadius}-${hdrTexture?.uuid || 'none'}`}
           texture={hdrTexture}
           height={hdr.domeHeight}
-          radius={hdr.domeRadius}
-          scale={20000}
+          radius={Math.max(hdr.domeRadius || 0, 500000)}
+          scale={Math.max(20000, (hdr.domeRadius || 5000) * 5)}
           exposure={hdr.intensity}
         />
       )}
@@ -257,7 +257,7 @@ const CustomOrbitControls: React.FC = () => {
     controlsRef.current.enableDamping = true;
     controlsRef.current.dampingFactor = 0.1;
     controlsRef.current.minDistance = 1;
-    controlsRef.current.maxDistance = 50000;
+    controlsRef.current.maxDistance = 450000;
     controlsRef.current.enableRotate = true;
     controlsRef.current.enableZoom = true;
     controlsRef.current.enablePan = true;
@@ -293,7 +293,7 @@ const CameraSetup: React.FC = () => {
       const persp = camera as THREE.PerspectiveCamera;
       persp.fov = fov;
       persp.near = 0.1;
-      persp.far = 50000;
+      persp.far = 500000;
       persp.updateProjectionMatrix();
       initialized.current = true;
     }
@@ -1032,6 +1032,7 @@ export const CyclesRenderPreview: React.FC = () => {
                       alpha: false,
                       powerPreference: 'high-performance',
                       preserveDrawingBuffer: false,
+                      logarithmicDepthBuffer: true,
                     });
                   } catch (e) {
                     console.error('❌ Cycles: Renderer Factory Error:', e);
@@ -1086,6 +1087,7 @@ export const CyclesRenderPreview: React.FC = () => {
                   antialias: true,
                   alpha: false,
                   preserveDrawingBuffer: false,
+                  logarithmicDepthBuffer: true,
                 });
               }}
               camera={{ position: [200, 150, 200], fov: 45 }}

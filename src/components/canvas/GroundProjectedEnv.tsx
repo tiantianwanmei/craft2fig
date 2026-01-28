@@ -46,6 +46,7 @@ export const GroundProjectedEnv: React.FC<GroundProjectedEnvProps> = ({
   return (
     <Environment
       map={texture}
+      background
       ground={{
         height,
         radius,
