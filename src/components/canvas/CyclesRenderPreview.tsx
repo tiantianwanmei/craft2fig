@@ -222,7 +222,7 @@ const SceneEnvironment: React.FC = () => {
         />
       )}
 
-      {ground.visible && (
+      {ground.visible && !shouldRenderHDRGround && (
         <>
           <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, ground.offsetY || 0, 0]} receiveShadow>
             <planeGeometry args={[500, 500]} />
@@ -243,6 +243,13 @@ const SceneEnvironment: React.FC = () => {
             frames={1}
           />
         </>
+      )}
+
+      {ground.visible && shouldRenderHDRGround && (
+        <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, ground.offsetY || 0, 0]} receiveShadow>
+          <planeGeometry args={[500, 500]} />
+          <shadowMaterial transparent opacity={0} />
+        </mesh>
       )}
     </>
   );
@@ -836,9 +843,14 @@ const CyclesSceneContent: React.FC<{
   xAxisMultiplier?: number;
   yAxisMultiplier?: number;
   nestingFactor?: number;
+  rootBoneTransform?: {
+    scale: number;
+    rotation: [number, number, number];
+    position: [number, number, number];
+  };
 }> = ({
   groundOffsetY, clipmaskVectors, markedLayers, foldProgress, foldSequence, rootPanelId, drivenMap, cyclesRenderMode, geometryMode, showSkeleton, showWireframe, foldEdgeWidth, pbrConfig,
-  creaseCurvature, jointInterpolation, xAxisMultiplier, yAxisMultiplier, nestingFactor
+  creaseCurvature, jointInterpolation, xAxisMultiplier, yAxisMultiplier, nestingFactor, rootBoneTransform
 }) => (
     <>
       <Suspense fallback={<div style={{ color: 'white' }}>加载 3D 场景中...</div>}>
@@ -863,6 +875,7 @@ const CyclesSceneContent: React.FC<{
             xAxisMultiplier={xAxisMultiplier}
             yAxisMultiplier={yAxisMultiplier}
             nestingFactor={nestingFactor}
+            rootBoneTransform={rootBoneTransform}
           />
         </Suspense>
       </Suspense>
@@ -899,6 +912,15 @@ export const CyclesRenderPreview: React.FC = () => {
   const [useWebGPU, setUseWebGPU] = React.useState(false);
   const [WebGPURendererClass, setWebGPURendererClass] = React.useState<any>(null); // Store constructor
   const [geometryMode, setGeometryMode] = React.useState<'nested' | 'skinned'>('skinned');
+
+  // 🆕 Root Bone Transform States
+  const [rootBoneScale, setRootBoneScale] = React.useState(1);
+  const [rootBoneRotX, setRootBoneRotX] = React.useState(0);
+  const [rootBoneRotY, setRootBoneRotY] = React.useState(0);
+  const [rootBoneRotZ, setRootBoneRotZ] = React.useState(0);
+  const [rootBonePosX, setRootBonePosX] = React.useState(0);
+  const [rootBonePosY, setRootBonePosY] = React.useState(0);
+  const [rootBonePosZ, setRootBonePosZ] = React.useState(0);
 
   // Load WebGPU module dynamically when needed
   useEffect(() => {
@@ -1061,6 +1083,11 @@ export const CyclesRenderPreview: React.FC = () => {
                   xAxisMultiplier={xAxisMultiplier}
                   yAxisMultiplier={yAxisMultiplier}
                   nestingFactor={nestingFactor}
+                  rootBoneTransform={{
+                    scale: rootBoneScale,
+                    rotation: [rootBoneRotX * Math.PI / 180, rootBoneRotY * Math.PI / 180, rootBoneRotZ * Math.PI / 180],
+                    position: [rootBonePosX, rootBonePosY, rootBonePosZ],
+                  }}
                 />
               </Canvas>
             )
@@ -1079,7 +1106,7 @@ export const CyclesRenderPreview: React.FC = () => {
                 } else if (canvasArg && isRealCanvas((canvasArg as any).domElement)) {
                   canvas = (canvasArg as any).domElement;
                 } else {
-                  canvas = document.querySelector('#cycles-canvas-container canvas') as HTMLCanvasElement;
+                  canvas = document.querySelector('#cycles-canvas-container canvas');
                 }
 
                 return new THREE.WebGLRenderer({
@@ -1112,6 +1139,11 @@ export const CyclesRenderPreview: React.FC = () => {
                 xAxisMultiplier={xAxisMultiplier}
                 yAxisMultiplier={yAxisMultiplier}
                 nestingFactor={nestingFactor}
+                rootBoneTransform={{
+                  scale: rootBoneScale,
+                  rotation: [rootBoneRotX * Math.PI / 180, rootBoneRotY * Math.PI / 180, rootBoneRotZ * Math.PI / 180],
+                  position: [rootBonePosX, rootBonePosY, rootBonePosZ],
+                }}
               />
             </Canvas>
           )}
@@ -1147,6 +1179,21 @@ export const CyclesRenderPreview: React.FC = () => {
             onYAxisMultiplierChange={setYAxisMultiplier}
             nestingFactor={nestingFactor}
             onNestingFactorChange={setNestingFactor}
+            // 🆕 Root Bone Transform Props
+            rootBoneScale={rootBoneScale}
+            onRootBoneScaleChange={setRootBoneScale}
+            rootBoneRotX={rootBoneRotX}
+            onRootBoneRotXChange={setRootBoneRotX}
+            rootBoneRotY={rootBoneRotY}
+            onRootBoneRotYChange={setRootBoneRotY}
+            rootBoneRotZ={rootBoneRotZ}
+            onRootBoneRotZChange={setRootBoneRotZ}
+            rootBonePosX={rootBonePosX}
+            onRootBonePosXChange={setRootBonePosX}
+            rootBonePosY={rootBonePosY}
+            onRootBonePosYChange={setRootBonePosY}
+            rootBonePosZ={rootBonePosZ}
+            onRootBonePosZChange={setRootBonePosZ}
           />
         </div>
       </div>
@@ -1172,11 +1219,16 @@ interface CraftScene3DProps {
   xAxisMultiplier?: number;
   yAxisMultiplier?: number;
   nestingFactor?: number;
+  rootBoneTransform?: {
+    scale: number;
+    rotation: [number, number, number];
+    position: [number, number, number];
+  };
 }
 
 const CraftScene3D: React.FC<CraftScene3DProps> = ({
   panels, craftLayers, foldProgress, foldSequence, rootPanelId, drivenMap, groundY, renderMode, geometryMode, showSkeleton, showWireframe, foldEdgeWidth, pbrConfig,
-  creaseCurvature, jointInterpolation, xAxisMultiplier, yAxisMultiplier, nestingFactor = 0.15,
+  creaseCurvature, jointInterpolation, xAxisMultiplier, yAxisMultiplier, nestingFactor = 0.15, rootBoneTransform,
 }) => {
   // 提升模型缩放，避免相对 HDR 过小导致视角难调
   const scale = 1.0;
@@ -1368,7 +1420,13 @@ const CraftScene3D: React.FC<CraftScene3DProps> = ({
 
       {/* 使用嵌套 Group 方案实现折叠 */}
       {hasHierarchy && geometryMode === 'skinned' ? (
-        <group ref={rigRef} position={[0, 0, 0]}>
+        <group ref={rigRef} position={[0, 0, 0]}
+          scale={rootBoneTransform?.scale || 1}
+          rotation={rootBoneTransform?.rotation || [0, 0, 0]}
+          position-x={rootBoneTransform?.position?.[0] || 0}
+          position-y={rootBoneTransform?.position?.[1] || 0}
+          position-z={rootBoneTransform?.position?.[2] || 0}
+        >
           <group position={[0, 0, 0]} frustumCulled={false}>
             <SkinnedMeshBridge
               panels={panels}
@@ -1480,6 +1538,21 @@ interface ControlPanelProps {
   onYAxisMultiplierChange: (val: number) => void;
   nestingFactor: number;
   onNestingFactorChange: (val: number) => void;
+  // 🆕 Root Bone Transform Props
+  rootBoneScale: number;
+  onRootBoneScaleChange: (val: number) => void;
+  rootBoneRotX: number;
+  onRootBoneRotXChange: (val: number) => void;
+  rootBoneRotY: number;
+  onRootBoneRotYChange: (val: number) => void;
+  rootBoneRotZ: number;
+  onRootBoneRotZChange: (val: number) => void;
+  rootBonePosX: number;
+  onRootBonePosXChange: (val: number) => void;
+  rootBonePosY: number;
+  onRootBonePosYChange: (val: number) => void;
+  rootBonePosZ: number;
+  onRootBonePosZChange: (val: number) => void;
 }
 
 const SidebarControlPanel: React.FC<ControlPanelProps> = ({
@@ -1508,6 +1581,20 @@ const SidebarControlPanel: React.FC<ControlPanelProps> = ({
   onYAxisMultiplierChange,
   nestingFactor,
   onNestingFactorChange,
+  rootBoneScale,
+  onRootBoneScaleChange,
+  rootBoneRotX,
+  onRootBoneRotXChange,
+  rootBoneRotY,
+  onRootBoneRotYChange,
+  rootBoneRotZ,
+  onRootBoneRotZChange,
+  rootBonePosX,
+  onRootBonePosXChange,
+  rootBonePosY,
+  onRootBonePosYChange,
+  rootBonePosZ,
+  onRootBonePosZChange,
 }) => {
   const [tab, setTab] = React.useState<'settings' | 'hdr' | 'layers'>('settings');
 
@@ -1579,11 +1666,95 @@ const SidebarControlPanel: React.FC<ControlPanelProps> = ({
               value={geometryMode}
               onChange={(e) => onGeometryModeChange(e.target.value as 'nested' | 'skinned')}
             >
-              {GEOMETRY_MODES.map((m) => (
-                <option key={m.value} value={m.value}>{m.label}</option>
-              ))}
+              <option value="nested">嵌套Group (当前)</option>
+              <option value="skinned">SkinnedMesh (骨骼)</option>
             </select>
           </div>
+
+          {/* 🆕 骨骼变换 (仅 SkinnedMesh 模式) */}
+          {geometryMode === 'skinned' && (
+            <div style={controlStyles.section}>
+              <span style={controlStyles.label}>骨骼变换</span>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <span style={{ fontSize: 10, color: '#888' }}>缩放</span>
+                  <span style={{ fontSize: 10 }}>{rootBoneScale.toFixed(2)}</span>
+                </div>
+                <input
+                  type="range" min="0.1" max="3" step="0.1"
+                  value={rootBoneScale}
+                  onChange={(e) => onRootBoneScaleChange(parseFloat(e.target.value))}
+                  style={{ width: '100%', cursor: 'pointer' }}
+                />
+
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <span style={{ fontSize: 10, color: '#888' }}>旋转 X</span>
+                  <span style={{ fontSize: 10 }}>{rootBoneRotX}°</span>
+                </div>
+                <input
+                  type="range" min="-180" max="180" step="1"
+                  value={rootBoneRotX}
+                  onChange={(e) => onRootBoneRotXChange(parseFloat(e.target.value))}
+                  style={{ width: '100%', cursor: 'pointer' }}
+                />
+
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <span style={{ fontSize: 10, color: '#888' }}>旋转 Y</span>
+                  <span style={{ fontSize: 10 }}>{rootBoneRotY}°</span>
+                </div>
+                <input
+                  type="range" min="-180" max="180" step="1"
+                  value={rootBoneRotY}
+                  onChange={(e) => onRootBoneRotYChange(parseFloat(e.target.value))}
+                  style={{ width: '100%', cursor: 'pointer' }}
+                />
+
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <span style={{ fontSize: 10, color: '#888' }}>旋转 Z</span>
+                  <span style={{ fontSize: 10 }}>{rootBoneRotZ}°</span>
+                </div>
+                <input
+                  type="range" min="-180" max="180" step="1"
+                  value={rootBoneRotZ}
+                  onChange={(e) => onRootBoneRotZChange(parseFloat(e.target.value))}
+                  style={{ width: '100%', cursor: 'pointer' }}
+                />
+
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <span style={{ fontSize: 10, color: '#888' }}>位移 X</span>
+                  <span style={{ fontSize: 10 }}>{rootBonePosX.toFixed(1)}</span>
+                </div>
+                <input
+                  type="range" min="-50" max="50" step="1"
+                  value={rootBonePosX}
+                  onChange={(e) => onRootBonePosXChange(parseFloat(e.target.value))}
+                  style={{ width: '100%', cursor: 'pointer' }}
+                />
+
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <span style={{ fontSize: 10, color: '#888' }}>位移 Y</span>
+                  <span style={{ fontSize: 10 }}>{rootBonePosY.toFixed(1)}</span>
+                </div>
+                <input
+                  type="range" min="-50" max="50" step="1"
+                  value={rootBonePosY}
+                  onChange={(e) => onRootBonePosYChange(parseFloat(e.target.value))}
+                  style={{ width: '100%', cursor: 'pointer' }}
+                />
+
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <span style={{ fontSize: 10, color: '#888' }}>位移 Z</span>
+                  <span style={{ fontSize: 10 }}>{rootBonePosZ.toFixed(1)}</span>
+                </div>
+                <input
+                  type="range" min="-50" max="50" step="1"
+                  value={rootBonePosZ}
+                  onChange={(e) => onRootBonePosZChange(parseFloat(e.target.value))}
+                  style={{ width: '100%', cursor: 'pointer' }}
+                />
+              </div>
+            </div>
+          )}
 
           {/* SkinnedMesh 调试选项 */}
           {geometryMode === 'skinned' && (
