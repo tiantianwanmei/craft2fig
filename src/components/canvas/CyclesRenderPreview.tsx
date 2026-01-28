@@ -215,8 +215,8 @@ const SceneEnvironment: React.FC = () => {
           key={`${hdr.domeHeight}-${hdr.domeRadius}-${hdrTexture?.uuid || 'none'}`}
           texture={hdrTexture}
           height={hdr.domeHeight}
-          radius={Math.max(hdr.domeRadius || 0, 500000)}
-          scale={Math.max(20000, (hdr.domeRadius || 5000) * 5)}
+          radius={Math.max(1, hdr.domeRadius || 0)}
+          scale={500000}
           groundY={ground.offsetY || 0}
           exposure={hdr.intensity}
         />
