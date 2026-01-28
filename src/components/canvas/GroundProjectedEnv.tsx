@@ -45,8 +45,9 @@ export const GroundProjectedEnv: React.FC<GroundProjectedEnvProps> = ({
   const skybox = useMemo(() => {
     const sky = new GroundProjectedSkybox(texture, { height, radius });
     sky.frustumCulled = false;
-    sky.renderOrder = -1000;
+    sky.renderOrder = -1500;
     const mat = sky.material as THREE.ShaderMaterial;
+    mat.depthTest = false;
     mat.depthWrite = false;
     return sky;
   }, [texture, height, radius]);

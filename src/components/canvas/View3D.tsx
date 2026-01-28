@@ -164,9 +164,9 @@ const HDRDome: React.FC<{
   if (!texture || !showBackground) return null;
 
   return (
-    <mesh ref={meshRef} scale={[-1, 1, 1]}>
+    <mesh ref={meshRef} scale={[-1, 1, 1]} renderOrder={-2000}>
       <sphereGeometry args={[1, 64, 32]} />
-      <meshBasicMaterial map={texture} side={THREE.BackSide} toneMapped={false} />
+      <meshBasicMaterial map={texture} side={THREE.BackSide} toneMapped={false} depthTest={false} depthWrite={false} />
     </mesh>
   );
 };

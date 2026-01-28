@@ -184,7 +184,7 @@ const SceneEnvironment: React.FC = () => {
     };
   }, [gl, hdr.intensity, hdr.useForLighting, hdrLoaded, hdrTexture, scene, hdr.showBackground, hdr.groundProjection, hdr.domeHeight, hdr.domeRadius, backgroundMode]);
 
-  const shouldRenderHDRGround = backgroundMode === 'hdr' && hdr.groundProjection && !!hdrTexture && hdr.showBackground;
+  const shouldRenderHDRGround = backgroundMode === 'hdr' && hdr.groundProjection && !!hdrTexture;
 
   useFrame(() => {
     if (!hdrBgRef.current) return;
@@ -201,11 +201,12 @@ const SceneEnvironment: React.FC = () => {
       {showHDRBackground && hdrTexture && (
         <mesh
           ref={hdrBgRef}
+          renderOrder={-2000}
           scale={[-1, 1, 1]}
           key={`hdr-bg-${hdrTexture.uuid || 'none'}-${hdr.showBackground ? 1 : 0}-${ground.offsetY || 0}`}
         >
           <sphereGeometry args={[1, 64, 32]} />
-          <meshBasicMaterial map={hdrTexture} side={THREE.BackSide} toneMapped={false} />
+          <meshBasicMaterial map={hdrTexture} side={THREE.BackSide} toneMapped={false} depthTest={false} depthWrite={false} />
         </mesh>
       )}
 
