@@ -8,6 +8,7 @@ interface GroundProjectedEnvProps {
   height?: number;
   radius?: number;
   scale?: number;
+  groundY?: number;
   exposure?: number;
 }
 
@@ -16,6 +17,7 @@ export const GroundProjectedEnv: React.FC<GroundProjectedEnvProps> = ({
   height = 1600,
   radius = 10000,
   scale = 1000,
+  groundY = 0,
   exposure: _exposure = 1.0,
 }) => {
   if (!texture) return null;
@@ -30,15 +32,6 @@ export const GroundProjectedEnv: React.FC<GroundProjectedEnvProps> = ({
     setDynamicScale(scale);
   }, [scale]);
 
-  useFrame(() => {
-    const camDist = camera.position.length();
-    const desired = Math.max(baseScale, camDist * 4);
-    if (desired <= 0) return;
-
-    const rel = Math.abs(desired - dynamicScale) / Math.max(1, dynamicScale);
-    if (rel > 0.15) setDynamicScale(desired);
-  });
-
   void _exposure;
   texture.mapping = THREE.EquirectangularReflectionMapping;
 
@@ -51,6 +44,19 @@ export const GroundProjectedEnv: React.FC<GroundProjectedEnvProps> = ({
     mat.depthWrite = false;
     return sky;
   }, [texture, height, radius]);
+
+  useFrame(() => {
+    const camDist = camera.position.length();
+    const desired = Math.max(baseScale, camDist * 4);
+    if (desired <= 0) return;
+
+    const rel = Math.abs(desired - dynamicScale) / Math.max(1, dynamicScale);
+    if (rel > 0.15) setDynamicScale(desired);
+
+    skybox.position.x = camera.position.x;
+    skybox.position.y = groundY;
+    skybox.position.z = camera.position.z;
+  });
 
   useEffect(() => {
     scene.add(skybox);

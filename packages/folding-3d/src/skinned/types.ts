@@ -218,6 +218,7 @@ export interface SkinnedFoldingMeshProps {
   panelTree: PanelNode;
   /** 纹理图集 (可选，不提供则自动生成) */
   textureAtlas?: TextureAtlasResult;
+  onMeshReady?: (mesh: THREE.SkinnedMesh | null) => void;
   /** 折叠进度 0-1 */
   foldProgress: number | React.MutableRefObject<number>;
   /** 纸张厚度 */

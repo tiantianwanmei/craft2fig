@@ -4,6 +4,7 @@
  */
 
 import React, { useMemo, useEffect } from 'react';
+import * as THREE from 'three';
 import { SkinnedFoldingMesh, type FoldTimingConfig } from '@genki/folding-3d';
 import { buildTopologyTree, type BuildTreeInput } from './RecursiveFoldingBox';
 import { convertToSkinnedPanelNode } from './SkinnedMeshAdapter';
@@ -66,6 +67,7 @@ interface SkinnedMeshViewProps {
   drivenMap: Record<string, string[]>;
   nameMap: Record<string, string>;
   foldProgress: number | React.MutableRefObject<number>;
+  onMeshReady?: (mesh: THREE.SkinnedMesh | null) => void;
   thickness?: number;
   cornerRadius?: number;
   showSkeleton?: boolean;
@@ -86,6 +88,7 @@ export const SkinnedMeshView: React.FC<SkinnedMeshViewProps> = ({
   drivenMap,
   nameMap,
   foldProgress,
+  onMeshReady,
   thickness = 1,
   cornerRadius = 2,
   showSkeleton = false,
@@ -188,6 +191,7 @@ export const SkinnedMeshView: React.FC<SkinnedMeshViewProps> = ({
     >
       <SkinnedFoldingMesh
         panelTree={panelTree}
+        onMeshReady={onMeshReady}
         foldProgress={foldProgress}
         thickness={thickness}
         cornerRadius={cornerRadius}

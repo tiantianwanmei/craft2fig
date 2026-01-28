@@ -3,7 +3,7 @@
  * 支持递归折叠和 SkinnedMesh 两种渲染模式
  */
 
-import React, { Suspense, useMemo, useRef, useEffect, useState } from 'react';
+import React, { Suspense, useMemo, useRef, useEffect, useState, useCallback } from 'react';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { ContactShadows, OrbitControls, PerspectiveCamera, Center } from '@react-three/drei';
 import { useShallow } from 'zustand/react/shallow';
@@ -64,9 +64,52 @@ const CameraSetup: React.FC = () => {
   return null;
 };
 
+const AutoGroundRig: React.FC<{
+  enabled: boolean;
+  groundY: number;
+  foldProgressRef: React.MutableRefObject<number>;
+  skinnedMeshRef: React.MutableRefObject<THREE.SkinnedMesh | null>;
+  rigRef: React.MutableRefObject<THREE.Group | null>;
+}> = ({ enabled, groundY, foldProgressRef, skinnedMeshRef, rigRef }) => {
+  const frameRef = useRef(0);
+  const lastProgressRef = useRef<number>(Number.NaN);
+  const tempWorldBoxRef = useRef(new THREE.Box3());
+
+  useFrame(() => {
+    if (!enabled) return;
+    const mesh = skinnedMeshRef.current;
+    const rig = rigRef.current;
+    if (!mesh || !rig) return;
+
+    frameRef.current = (frameRef.current + 1) | 0;
+    if ((frameRef.current % 4) !== 0) return;
+
+    const progress = foldProgressRef.current;
+    const last = lastProgressRef.current;
+    if (Number.isFinite(last) && Math.abs(progress - last) < 0.001) return;
+    lastProgressRef.current = progress;
+
+    mesh.updateMatrixWorld(true);
+    mesh.skeleton?.update();
+    mesh.computeBoundingBox();
+    const bb = mesh.boundingBox;
+    if (!bb) return;
+
+    const worldBox = tempWorldBoxRef.current;
+    worldBox.copy(bb).applyMatrix4(mesh.matrixWorld);
+    const delta = groundY - worldBox.min.y;
+    if (!Number.isFinite(delta)) return;
+    if (Math.abs(delta) < 1e-4) return;
+    rig.position.y = rig.position.y + delta;
+  });
+
+  return null;
+};
+
 const SceneEnvironmentCore: React.FC = () => {
   const background = use3DStore((s) => s.background);
   const hdr = use3DStore((s) => s.hdr);
+  const ground = use3DStore((s) => s.ground);
   const hdrTexture = useWebGPUStore((s) => s.hdrTexture);
 
   const gradedSolid = useMemo(() => applyBackgroundGrade(background.solidColor, background), [background]);
@@ -107,6 +150,7 @@ const SceneEnvironmentCore: React.FC = () => {
           height={hdr.domeHeight}
           radius={Math.max(hdr.domeRadius || 0, 500000)}
           scale={Math.max((hdr.domeRadius || 5000) * 5, 20000)}
+          groundY={ground.offsetY || 0}
           exposure={hdr.intensity}
         />
       )}
@@ -254,13 +298,19 @@ export const View3D: React.FC<View3DProps> = ({ height = '100%' }) => {
   const ground = use3DStore((s) => s.ground);
   const effectiveGroundY = SCENE_GROUND_Y;
 
+  const rigRef = useRef<THREE.Group | null>(null);
+  const skinnedMeshRef = useRef<THREE.SkinnedMesh | null>(null);
+  const handleSkinnedMeshReady = useCallback((m: THREE.SkinnedMesh | null) => {
+    skinnedMeshRef.current = m;
+  }, []);
+
   const controlsRef = useRef<OrbitControlsImpl | null>(null);
   useEffect(() => {
     const controls = controlsRef.current;
     if (!controls) return;
-    controls.target.set(0, 0, 0);
+    controls.target.set(0, ground.offsetY || 0, 0);
     controls.update();
-  }, []);
+  }, [ground.offsetY]);
 
   // 🔍 调试：打印渲染模式切换
   useEffect(() => {
@@ -429,29 +479,32 @@ export const View3D: React.FC<View3DProps> = ({ height = '100%' }) => {
         </Suspense>
 
         <Suspense fallback={null}>
-          <Center top>
-            {rootId && vectors.length > 0 && (
-              <group position={[0, 0, 0]}>
-                {useSkinnedMesh ? (
-                  <SkinnedMeshView
-                    vectors={vectors}
-                    rootId={rootId}
-                    drivenMap={drivenMapStable}
-                    nameMap={panelNameMapStable}
-                    foldProgress={foldProgressRef}
-                    thickness={2}
-                    cornerRadius={2}
-                    showWireframe={showWireframe}
-                    yFlipBaseline={null}
-                    imageMap={previewImageUrlMap}
-                    gapSizeMultiplier={parametricParams.gapSize / parametricParams.thickness}
-                    creaseCurvature={parametricParams.creaseCurvature}
-                    jointInterpolation={parametricParams.interpolation}
-                    xAxisMultiplier={parametricParams.xAxisMultiplier}
-                    yAxisMultiplier={parametricParams.yAxisMultiplier}
-                    nestingFactor={parametricParams.nestingFactor}
-                  />
-                ) : (
+          {rootId && vectors.length > 0 && (
+            useSkinnedMesh ? (
+              <group ref={rigRef} position={[0, 0, 0]}>
+                <SkinnedMeshView
+                  vectors={vectors}
+                  rootId={rootId}
+                  drivenMap={drivenMapStable}
+                  nameMap={panelNameMapStable}
+                  foldProgress={foldProgressRef}
+                  onMeshReady={handleSkinnedMeshReady}
+                  thickness={2}
+                  cornerRadius={2}
+                  showWireframe={showWireframe}
+                  yFlipBaseline={null}
+                  imageMap={previewImageUrlMap}
+                  gapSizeMultiplier={parametricParams.gapSize / parametricParams.thickness}
+                  creaseCurvature={parametricParams.creaseCurvature}
+                  jointInterpolation={parametricParams.interpolation}
+                  xAxisMultiplier={parametricParams.xAxisMultiplier}
+                  yAxisMultiplier={parametricParams.yAxisMultiplier}
+                  nestingFactor={parametricParams.nestingFactor}
+                />
+              </group>
+            ) : (
+              <Center>
+                <group ref={rigRef} position={[0, 0, 0]}>
                   <RecursiveFoldingBox
                     vectors={vectors}
                     rootId={rootId}
@@ -461,11 +514,19 @@ export const View3D: React.FC<View3DProps> = ({ height = '100%' }) => {
                     thickness={2}
                     yFlipBaseline={yFlipBaseline}
                   />
-                )}
-              </group>
-            )}
-          </Center>
+                </group>
+              </Center>
+            )
+          )}
         </Suspense>
+
+        <AutoGroundRig
+          enabled={useSkinnedMesh}
+          groundY={ground.offsetY || 0}
+          foldProgressRef={foldProgressRef}
+          skinnedMeshRef={skinnedMeshRef}
+          rigRef={rigRef}
+        />
 
         {ground.visible && !shouldRenderHDRGround && (
           <>
@@ -493,10 +554,10 @@ export const View3D: React.FC<View3DProps> = ({ height = '100%' }) => {
         <OrbitControls
           makeDefault
           ref={controlsRef}
-          target={[0, 0, 0]}
+          target={[0, ground.offsetY || 0, 0]}
           enablePan={false}
           minPolarAngle={0}
-          maxPolarAngle={Math.PI / 1.8}
+          maxPolarAngle={shouldRenderHDRGround ? Math.PI / 2.05 : Math.PI / 1.8}
           minDistance={5}
           maxDistance={(background.mode === 'hdr' && hdr.groundProjection) ? 450000 : 450000}
           enableDamping

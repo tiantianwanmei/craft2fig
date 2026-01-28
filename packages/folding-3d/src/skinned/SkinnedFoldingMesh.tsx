@@ -671,6 +671,7 @@ function buildStitchedGeometry(
 export const SkinnedFoldingMesh: React.FC<SkinnedFoldingMeshProps> = ({
   panelTree,
   textureAtlas: externalAtlas,
+  onMeshReady,
   foldProgress,
   thickness = 1,
   cornerRadius = 2,
@@ -691,6 +692,12 @@ export const SkinnedFoldingMesh: React.FC<SkinnedFoldingMeshProps> = ({
   nestingFactor = 0.15,
 }) => {
   const meshRef = useRef<THREE.SkinnedMesh>(null);
+
+  useEffect(() => {
+    if (!onMeshReady) return;
+    onMeshReady(meshRef.current);
+    return () => onMeshReady(null);
+  }, [onMeshReady]);
 
   // 构建所有数据
   const meshData = useMemo(() => {

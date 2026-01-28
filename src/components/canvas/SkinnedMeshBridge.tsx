@@ -4,6 +4,7 @@
  */
 
 import React, { useMemo, useEffect, useState } from 'react';
+import type * as THREE from 'three';
 import { SkinnedFoldingMesh, TextureAtlasBuilder } from '@genki/folding-3d';
 import type { PanelNode, TextureAtlasResult, FoldTimingConfig } from '@genki/folding-3d';
 import type { MarkedLayer } from '../../types/core';
@@ -29,6 +30,7 @@ export interface SkinnedMeshBridgeProps {
   rootPanelId: string | null;
   /** 折叠进度 0-1 */
   foldProgress: number;
+  onMeshReady?: (mesh: THREE.SkinnedMesh | null) => void;
   /** 折叠顺序 */
   foldSequence?: string[];
   /** 折痕宽度（折叠边 width） */
@@ -133,6 +135,7 @@ export const SkinnedMeshBridge: React.FC<SkinnedMeshBridgeProps> = ({
   drivenMap,
   rootPanelId,
   foldProgress,
+  onMeshReady,
   foldSequence = [],
   jointWidth = 2,
   scale = 0.1,
@@ -315,6 +318,7 @@ export const SkinnedMeshBridge: React.FC<SkinnedMeshBridgeProps> = ({
         key={`mesh-${panelTree?.id || 'root'}`}
         panelTree={panelTree}
         textureAtlas={textureAtlas ?? undefined}
+        onMeshReady={onMeshReady}
         foldProgress={foldProgress}
         thickness={thickness}
         cornerRadius={2}

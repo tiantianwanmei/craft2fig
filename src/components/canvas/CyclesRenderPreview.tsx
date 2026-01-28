@@ -217,6 +217,7 @@ const SceneEnvironment: React.FC = () => {
           height={hdr.domeHeight}
           radius={Math.max(hdr.domeRadius || 0, 500000)}
           scale={Math.max(20000, (hdr.domeRadius || 5000) * 5)}
+          groundY={ground.offsetY || 0}
           exposure={hdr.intensity}
         />
       )}
@@ -843,27 +844,26 @@ const CyclesSceneContent: React.FC<{
       <Suspense fallback={<div style={{ color: 'white' }}>加载 3D 场景中...</div>}>
         <CameraSetup />
         <Suspense fallback={null}>
-          <group position={[0, groundOffsetY, 0]}>
-            <CraftScene3D
-              panels={clipmaskVectors}
-              craftLayers={markedLayers}
-              foldProgress={foldProgress}
-              foldSequence={foldSequence}
-              rootPanelId={rootPanelId}
-              drivenMap={drivenMap}
-              renderMode={cyclesRenderMode as 'realtime' | 'pathtracing' | 'hybrid'}
-              geometryMode={geometryMode}
-              showSkeleton={showSkeleton}
-              showWireframe={showWireframe}
-              foldEdgeWidth={foldEdgeWidth}
-              pbrConfig={pbrConfig}
-              creaseCurvature={creaseCurvature}
-              jointInterpolation={jointInterpolation}
-              xAxisMultiplier={xAxisMultiplier}
-              yAxisMultiplier={yAxisMultiplier}
-              nestingFactor={nestingFactor}
-            />
-          </group>
+          <CraftScene3D
+            panels={clipmaskVectors}
+            craftLayers={markedLayers}
+            foldProgress={foldProgress}
+            foldSequence={foldSequence}
+            rootPanelId={rootPanelId}
+            drivenMap={drivenMap}
+            groundY={groundOffsetY}
+            renderMode={cyclesRenderMode as 'realtime' | 'pathtracing' | 'hybrid'}
+            geometryMode={geometryMode}
+            showSkeleton={showSkeleton}
+            showWireframe={showWireframe}
+            foldEdgeWidth={foldEdgeWidth}
+            pbrConfig={pbrConfig}
+            creaseCurvature={creaseCurvature}
+            jointInterpolation={jointInterpolation}
+            xAxisMultiplier={xAxisMultiplier}
+            yAxisMultiplier={yAxisMultiplier}
+            nestingFactor={nestingFactor}
+          />
         </Suspense>
       </Suspense>
       <CustomOrbitControls />
@@ -1160,6 +1160,7 @@ interface CraftScene3DProps {
   foldSequence: string[];
   rootPanelId: string | null;
   drivenMap: Record<string, string[]>;
+  groundY: number;
   renderMode: 'realtime' | 'pathtracing' | 'hybrid';
   geometryMode: 'nested' | 'skinned';
   showSkeleton: boolean;
@@ -1174,7 +1175,7 @@ interface CraftScene3DProps {
 }
 
 const CraftScene3D: React.FC<CraftScene3DProps> = ({
-  panels, craftLayers, foldProgress, foldSequence, rootPanelId, drivenMap, renderMode, geometryMode, showSkeleton, showWireframe, foldEdgeWidth, pbrConfig,
+  panels, craftLayers, foldProgress, foldSequence, rootPanelId, drivenMap, groundY, renderMode, geometryMode, showSkeleton, showWireframe, foldEdgeWidth, pbrConfig,
   creaseCurvature, jointInterpolation, xAxisMultiplier, yAxisMultiplier, nestingFactor = 0.15,
 }) => {
   // 提升模型缩放，避免相对 HDR 过小导致视角难调
@@ -1311,6 +1312,42 @@ const CraftScene3D: React.FC<CraftScene3DProps> = ({
     return panels.filter(p => p && p.id && !panelsInHierarchy.has(p.id));
   }, [panels, panelsInHierarchy]);
 
+  const rigRef = useRef<THREE.Group | null>(null);
+  const skinnedMeshRef = useRef<THREE.SkinnedMesh | null>(null);
+  const lastProgressRef = useRef<number>(Number.NaN);
+  const frameRef = useRef(0);
+  const tempWorldBoxRef = useRef(new THREE.Box3());
+
+  const handleSkinnedMeshReady = useCallback((m: THREE.SkinnedMesh | null) => {
+    skinnedMeshRef.current = m;
+  }, []);
+
+  useFrame(() => {
+    if (!(hasHierarchy && geometryMode === 'skinned')) return;
+    const mesh = skinnedMeshRef.current;
+    const rig = rigRef.current;
+    if (!mesh || !rig) return;
+
+    frameRef.current = (frameRef.current + 1) | 0;
+    if ((frameRef.current % 4) !== 0) return;
+
+    if (Number.isFinite(lastProgressRef.current) && Math.abs(foldProgress - lastProgressRef.current) < 0.001) return;
+    lastProgressRef.current = foldProgress;
+
+    mesh.updateMatrixWorld(true);
+    mesh.skeleton?.update();
+    mesh.computeBoundingBox();
+    const bb = mesh.boundingBox;
+    if (!bb) return;
+
+    const worldBox = tempWorldBoxRef.current;
+    worldBox.copy(bb).applyMatrix4(mesh.matrixWorld);
+    const delta = groundY - worldBox.min.y;
+    if (!Number.isFinite(delta)) return;
+    if (Math.abs(delta) < 1e-4) return;
+    rig.position.y = rig.position.y + delta;
+  });
+
 
 
   return (
@@ -1331,13 +1368,14 @@ const CraftScene3D: React.FC<CraftScene3DProps> = ({
 
       {/* 使用嵌套 Group 方案实现折叠 */}
       {hasHierarchy && geometryMode === 'skinned' ? (
-        <group position={[0, 0, 0]}>
+        <group ref={rigRef} position={[0, 0, 0]}>
           <group position={[0, 0, 0]} frustumCulled={false}>
             <SkinnedMeshBridge
               panels={panels}
               drivenMap={drivenMap}
               rootPanelId={rootPanelId}
               foldProgress={foldProgress}
+              onMeshReady={handleSkinnedMeshReady}
               foldSequence={foldSequence}
               jointWidth={foldEdgeWidth}
               scale={scale}
