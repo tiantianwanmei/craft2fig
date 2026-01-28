@@ -162,8 +162,8 @@ const SceneEnvironmentCore: React.FC<{ anchorRef?: React.MutableRefObject<THREE.
         <GroundProjectedEnv
           texture={effectiveHDRTexture}
           height={hdr.domeHeight}
-          radius={Math.max(1, hdr.domeRadius || 0)}
-          scale={500000}
+          radius={hdr.domeRadius || 5000}
+          scale={20000}
           groundY={ground.offsetY || 0}
           anchorRef={anchorRef}
           exposure={hdr.intensity}
