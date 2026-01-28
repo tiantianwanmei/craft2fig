@@ -9,6 +9,7 @@ interface GroundProjectedEnvProps {
   radius?: number;
   scale?: number;
   groundY?: number;
+  anchorRef?: React.MutableRefObject<THREE.Vector3 | null>;
   exposure?: number;
 }
 
@@ -18,6 +19,7 @@ export const GroundProjectedEnv: React.FC<GroundProjectedEnvProps> = ({
   radius = 10000,
   scale = 1000,
   groundY = 0,
+  anchorRef,
   exposure: _exposure = 1.0,
 }) => {
   if (!texture) return null;
@@ -53,9 +55,13 @@ export const GroundProjectedEnv: React.FC<GroundProjectedEnvProps> = ({
     const rel = Math.abs(desired - dynamicScale) / Math.max(1, dynamicScale);
     if (rel > 0.15) setDynamicScale(desired);
 
-    skybox.position.x = camera.position.x;
-    skybox.position.y = groundY;
-    skybox.position.z = camera.position.z;
+    const anchor = anchorRef?.current;
+    const ax = anchor ? anchor.x : 0;
+    const az = anchor ? anchor.z : 0;
+    const anchorY = groundY + height;
+    skybox.position.set(ax, anchorY, az);
+    skybox.center = new THREE.Vector3(ax, anchorY, az);
+    skybox.virtualCameraPosition = new THREE.Vector3(ax, anchorY, az);
   });
 
   useEffect(() => {

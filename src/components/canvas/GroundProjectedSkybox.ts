@@ -31,6 +31,8 @@ export class GroundProjectedSkybox extends THREE.Mesh {
 			uniform float radius;
 			uniform float height;
 			uniform float angle;
+			uniform vec3 center;
+			uniform vec3 virtualCameraPosition;
 
 			#ifdef ENVMAP_TYPE_CUBE
 
@@ -74,8 +76,8 @@ export class GroundProjectedSkybox extends THREE.Mesh {
 
 			vec3 project() {
 
-				vec3 p = normalize( vWorldPosition );
-				vec3 camPos = cameraPosition;
+				vec3 p = normalize( vWorldPosition - center );
+				vec3 camPos = virtualCameraPosition - center;
 				camPos.y -= height;
 
 				float intersection = sphereIntersect( camPos, p, vec3( 0.0 ), radius );
@@ -126,6 +128,8 @@ export class GroundProjectedSkybox extends THREE.Mesh {
       height: { value: options.height ?? 15 },
       radius: { value: options.radius ?? 100 },
       angle: { value: 0 },
+      center: { value: new THREE.Vector3(0, 0, 0) },
+      virtualCameraPosition: { value: new THREE.Vector3(0, 0, 0) },
     };
 
     const geometry = new THREE.IcosahedronGeometry(1, 16);
@@ -153,5 +157,23 @@ export class GroundProjectedSkybox extends THREE.Mesh {
 
   public get height(): number {
     return (this.material as THREE.ShaderMaterial).uniforms.height.value as number;
+  }
+
+  public set center(value: THREE.Vector3) {
+    const u = (this.material as THREE.ShaderMaterial).uniforms.center;
+    (u.value as THREE.Vector3).copy(value);
+  }
+
+  public get center(): THREE.Vector3 {
+    return (this.material as THREE.ShaderMaterial).uniforms.center.value as THREE.Vector3;
+  }
+
+  public set virtualCameraPosition(value: THREE.Vector3) {
+    const u = (this.material as THREE.ShaderMaterial).uniforms.virtualCameraPosition;
+    (u.value as THREE.Vector3).copy(value);
+  }
+
+  public get virtualCameraPosition(): THREE.Vector3 {
+    return (this.material as THREE.ShaderMaterial).uniforms.virtualCameraPosition.value as THREE.Vector3;
   }
 }

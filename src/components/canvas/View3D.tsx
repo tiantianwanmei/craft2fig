@@ -64,6 +64,20 @@ const CameraSetup: React.FC = () => {
   return null;
 };
 
+const OrbitTargetTracker: React.FC<{
+  controlsRef: React.MutableRefObject<OrbitControlsImpl | null>;
+  targetRef: React.MutableRefObject<THREE.Vector3 | null>;
+}> = ({ controlsRef, targetRef }) => {
+  useFrame(() => {
+    const controls = controlsRef.current;
+    if (!controls) return;
+    const t = controls.target;
+    if (!targetRef.current) targetRef.current = new THREE.Vector3(t.x, t.y, t.z);
+    else targetRef.current.set(t.x, t.y, t.z);
+  });
+  return null;
+};
+
 const AutoGroundRig: React.FC<{
   enabled: boolean;
   groundY: number;
@@ -106,7 +120,7 @@ const AutoGroundRig: React.FC<{
   return null;
 };
 
-const SceneEnvironmentCore: React.FC = () => {
+const SceneEnvironmentCore: React.FC<{ anchorRef?: React.MutableRefObject<THREE.Vector3 | null> }> = ({ anchorRef }) => {
   const background = use3DStore((s) => s.background);
   const hdr = use3DStore((s) => s.hdr);
   const ground = use3DStore((s) => s.ground);
@@ -151,6 +165,7 @@ const SceneEnvironmentCore: React.FC = () => {
           radius={Math.max(hdr.domeRadius || 0, 500000)}
           scale={Math.max((hdr.domeRadius || 5000) * 5, 20000)}
           groundY={ground.offsetY || 0}
+          anchorRef={anchorRef}
           exposure={hdr.intensity}
         />
       )}
@@ -303,6 +318,8 @@ export const View3D: React.FC<View3DProps> = ({ height = '100%' }) => {
   const handleSkinnedMeshReady = useCallback((m: THREE.SkinnedMesh | null) => {
     skinnedMeshRef.current = m;
   }, []);
+
+  const orbitTargetRef = useRef<THREE.Vector3 | null>(new THREE.Vector3(0, ground.offsetY || 0, 0));
 
   const controlsRef = useRef<OrbitControlsImpl | null>(null);
   useEffect(() => {
@@ -475,8 +492,10 @@ export const View3D: React.FC<View3DProps> = ({ height = '100%' }) => {
         style={{ background: 'transparent' }}
       >
         <Suspense fallback={null}>
-          <SceneEnvironmentCore />
+          <SceneEnvironmentCore anchorRef={orbitTargetRef} />
         </Suspense>
+
+        <OrbitTargetTracker controlsRef={controlsRef} targetRef={orbitTargetRef} />
 
         <Suspense fallback={null}>
           {rootId && vectors.length > 0 && (
