@@ -13,20 +13,25 @@ import * as THREE from 'three';
 // @ts-ignore
 import { SVGLoader } from 'three/examples/jsm/loaders/SVGLoader';
 
-import type { PanelNode, SkinnedFoldingMeshProps, FoldTimingConfig } from './types';
+
 import { SkeletonBuilder } from './SkeletonBuilder';
 import { calculateSkinData } from './weights';
+import { calculateDynamicGapSize, type AllowanceConfig } from './FoldingAllowance';
+import type { PanelNode, FoldTimingConfig, SkinnedFoldingMeshProps } from './types';
 
-/** 计算整个刀版图的边界 */
-function calculateBounds(root: PanelNode) {
+/** 计算整个刀版图的边界 (考虑动态让位产生的偏移) */
+function calculateBounds(root: PanelNode, offsets?: Map<string, { x: number, y: number }>) {
   let minX = Infinity, minY = Infinity;
   let maxX = -Infinity, maxY = -Infinity;
 
   const traverse = (node: PanelNode) => {
-    minX = Math.min(minX, node.bounds.x);
-    minY = Math.min(minY, node.bounds.y);
-    maxX = Math.max(maxX, node.bounds.x + node.bounds.width);
-    maxY = Math.max(maxY, node.bounds.y + node.bounds.height);
+    const offset = offsets?.get(node.id) || { x: 0, y: 0 };
+    const x = node.bounds.x + offset.x;
+    const y = node.bounds.y + offset.y;
+    minX = Math.min(minX, x);
+    minY = Math.min(minY, y);
+    maxX = Math.max(maxX, x + node.bounds.width);
+    maxY = Math.max(maxY, y + node.bounds.height);
     node.children.forEach(traverse);
   };
   traverse(root);
@@ -105,26 +110,37 @@ function calculateFoldAngle(
 
 /**
  * 计算树结构的空间偏移（用于留出折叠缝隙）
+ * 支持动态让位算法
  */
-function calculateTreeOffsets(root: PanelNode, gapSize: number): Map<string, { x: number, y: number }> {
+function calculateTreeOffsets(
+  root: PanelNode,
+  config: AllowanceConfig
+): {
+  offsets: Map<string, { x: number, y: number }>,
+  gapSizes: Map<string, number>
+} {
   const offsets = new Map<string, { x: number, y: number }>();
+  const gapSizes = new Map<string, number>();
 
-  const traverse = (node: PanelNode, currentOffset: { x: number, y: number }) => {
+  const traverse = (node: PanelNode, currentOffset: { x: number, y: number }, depth: number) => {
     offsets.set(node.id, currentOffset);
 
     node.children.forEach(child => {
       const childShift = { ...currentOffset };
       if (child.jointInfo) {
         const j = child.jointInfo;
-        // Joint Width = gapSize * 2
-        // If node defines its own gapSize, use it? Currently global only.
+
+        // 🧪 核心算法：计算该关节的科学让位宽度
+        const gapSize = calculateDynamicGapSize(j.type, depth, config);
+        gapSizes.set(child.id, gapSize);
+
+        // Joint Strip Width = gapSize * 2
         const stripWidth = gapSize * 2;
 
         if (j.type === 'horizontal') {
           if (child.bounds.y > node.bounds.y) {
             childShift.y += stripWidth;
           } else {
-            // Inverted Layout
             childShift.y -= stripWidth;
           }
         } else {
@@ -135,12 +151,12 @@ function calculateTreeOffsets(root: PanelNode, gapSize: number): Map<string, { x
           }
         }
       }
-      traverse(child, childShift);
+      traverse(child, childShift, depth + 1);
     });
   };
 
-  traverse(root, { x: 0, y: 0 });
-  return offsets;
+  traverse(root, { x: 0, y: 0 }, 0);
+  return { offsets, gapSizes };
 }
 
 /**
@@ -162,8 +178,10 @@ function buildStitchedGeometry(
     cornerRadius: number;
     scale: number;
     jointInterpolation?: 'linear' | 'smooth' | 'arc';
-    gapSize?: number; // 🆕 参数化连接器宽度
+    gapSizes?: Map<string, number>; // 🆕 动态连接器宽度映射
     offsets?: Map<string, { x: number; y: number }>;
+    creaseCurvature?: number; // 🆕 折痕曲率
+    alignOffset?: { x: number; y: number }; // 🆕 归一化对齐偏移
   },
   regions?: Map<string, any> // AtlasRegion type
 ): THREE.BufferGeometry {
@@ -177,10 +195,6 @@ function buildStitchedGeometry(
 
   // 不应用居中偏移，使用原始坐标
   const alignOffset = { x: 0, y: 0 };
-
-  // 参数化 Gap 定义：优先使用节点的 gapSize，否则使用全局配置，最后回退到默认值
-  const defaultGapSize = Math.max((config.thickness || 1) * 1.5, 1.5);
-  const gapSize = config.gapSize ?? defaultGapSize;
 
   // 分离索引数组
   const frontIndices: number[] = [];
@@ -215,28 +229,26 @@ function buildStitchedGeometry(
   ) => {
     const joint = node.jointInfo!;
 
-    // Joint Width = 2 * gapSize * scale
+    // 🧪 使用动态计算的 GapSize
+    const gapSize = config.gapSizes?.get(node.id) ?? config.thickness * 1.5;
     const jointW = gapSize * 2 * scale;
-    const segments = (() => {
-      const requested = config.jointSegments || 16;
-      if (requested > 0 && requested !== 16) return requested;
-      const length = Math.max(1e-6, joint.length * scale);
-      // 自适应细分：带宽越大细分越高，保持圆弧平滑
-      const denom = Math.max(1e-6, jointW * 0.5);
-      const autoSeg = Math.round(length / denom);
-      return Math.max(12, Math.min(96, autoSeg));
-    })();
+    const segments = config.jointSegments || 16; // 🔧 Fixed segments to prevent skin weight corruption
     const halfW = jointW / 2;
 
     const isHorizontal = joint.type === 'horizontal';
     const length = joint.length * scale;
+    const alignX = config.alignOffset?.x ?? 0;
+    const alignY = config.alignOffset?.y ?? 0;
 
     // Determine Orientation (Parent -> Child)
-    // Map T=0 (Parent Side) to the correct geometric edge
     let startOffset = -halfW;
     let endOffset = halfW;
 
     if (isHorizontal) {
+      const parentY = -(parentBounds.y - alignY) * scale;
+      const jY = -(joint.position.y - alignY) * scale;
+      const isTop = jY > parentY;
+      const isTopDir = joint.direction < 0; // Simple heuristic for now
       if (node.bounds.y > parentBounds.y) { // Child is Below (Normal)
         startOffset = halfW;
         endOffset = -halfW;
@@ -262,8 +274,8 @@ function buildStitchedGeometry(
 
     // UVs: Use center of joint in world space
     const rawBonePos = boneWorldPositions.get(node.id) || { x: 0, y: 0 };
-    const centerX_2D = rawBonePos.x + alignOffset.x;
-    const centerY_2D = rawBonePos.y + alignOffset.y;
+    const centerX_2D = rawBonePos.x - alignX;
+    const centerY_2D = rawBonePos.y - alignY;
 
     // Model Space Center (3D)
     const centerX_3D = centerX_2D * scale;
@@ -292,7 +304,8 @@ function buildStitchedGeometry(
       const weights = calculateSkinData('crease', t, {
         parentBoneIndex: parentBoneIdx,
         childBoneIndex: childBoneIdx,
-        interpolation: config.jointInterpolation || 'smooth'
+        interpolation: config.jointInterpolation || 'smooth',
+        creaseCurvature: config.creaseCurvature || 1.0,
       });
 
       const zOffset = (config.thickness || 1) / 2;
@@ -300,8 +313,8 @@ function buildStitchedGeometry(
       // --- Front Vertices ---
       const posX0 = centerX_3D + dx0;
       const posY0 = centerY_3D + dy0;
-      const layoutX0 = posX0 / scale - alignOffset.x;
-      const layoutY0 = -posY0 / scale - alignOffset.y;
+      const layoutX0 = posX0 / scale + alignX;
+      const layoutY0 = -posY0 / scale + alignY;
 
       let u0 = (layoutX0 - bounds.minX) / bounds.width;
       let v0 = 1 - (layoutY0 - bounds.minY) / bounds.height;
@@ -321,8 +334,8 @@ function buildStitchedGeometry(
 
       const posX1 = centerX_3D + dx1;
       const posY1 = centerY_3D + dy1;
-      const layoutX1 = posX1 / scale - alignOffset.x;
-      const layoutY1 = -posY1 / scale - alignOffset.y;
+      const layoutX1 = posX1 / scale + alignX;
+      const layoutY1 = -posY1 / scale + alignY;
 
       let u1 = (layoutX1 - bounds.minX) / bounds.width;
       let v1 = 1 - (layoutY1 - bounds.minY) / bounds.height;
@@ -357,21 +370,53 @@ function buildStitchedGeometry(
       buffers.skinWeights.push(...weights.skinWeights);
 
       if (i > 0) {
+        // --- 🧪 Deterministic CCW Winding Strategy ---
+        // Goal: Ensure front faces are always CCW facing +Z.
+        // We use the 2D cross product of the width vector and the sweep vector.
+
+        // Indices already calculated above: pL, pR, cL, cR are relative to current vertexCount
         // Front Facets
         const pL = vIdx0 - 4;
         const pR = vIdx1 - 4;
         const cL = vIdx0;
         const cR = vIdx1;
-        frontIndices.push(pL, cL, pR);
-        frontIndices.push(pR, cL, cR);
 
-        // Back Facets (CW winding for back side)
         const pL_b = vIdx0_back - 4;
         const pR_b = vIdx1_back - 4;
         const cL_b = vIdx0_back;
         const cR_b = vIdx1_back;
-        backIndices.push(pL_b, pR_b, cL_b);
-        backIndices.push(pR_b, cL_b, cR_b);
+
+        // Cross product of (pR - pL) and (cL - pL) to check orientation
+        // Local space: pL = (dx0_prev, dy0_prev), pR = (dx1_prev, dy1_prev), cL = (dx0, dy0)
+        const halfL = length / 2;
+        const prevDx0 = isHorizontal ? -halfL : (startOffset + (i - 1) / segments * (endOffset - startOffset));
+        const prevDy0 = isHorizontal ? (startOffset + (i - 1) / segments * (endOffset - startOffset)) : -halfL;
+        const prevDx1 = isHorizontal ? halfL : (startOffset + (i - 1) / segments * (endOffset - startOffset));
+        const prevDy1 = isHorizontal ? (startOffset + (i - 1) / segments * (endOffset - startOffset)) : halfL;
+
+        const vWidthX = prevDx1 - prevDx0;
+        const vWidthY = prevDy1 - prevDy0;
+        const vSweepX = dx0 - prevDx0;
+        const vSweepY = dy0 - prevDy0;
+
+        // Determinant (Z-component of cross product)
+        const det = vWidthX * vSweepY - vWidthY * vSweepX;
+
+        if (det > 0) {
+          // Standard order is CCW
+          frontIndices.push(pL, pR, cL);
+          frontIndices.push(pR, cR, cL);
+          // Back face (CW from world POV, CCW from behind)
+          backIndices.push(pL_b, cL_b, pR_b);
+          backIndices.push(pR_b, cL_b, cR_b);
+        } else {
+          // Flipped order is CCW
+          frontIndices.push(pL, cL, pR);
+          frontIndices.push(pR, cL, cR);
+          // Back face (CW from world POV, CCW from behind)
+          backIndices.push(pL_b, pR_b, cL_b);
+          backIndices.push(pR_b, cR_b, cL_b);
+        }
       }
     }
 
@@ -396,10 +441,13 @@ function buildStitchedGeometry(
     const rectH = height;
 
     // Model Space Coordinates (Global + Offset)
-    const lx0 = (rectX + offset.x + alignOffset.x) * scale;
-    const lx1 = (rectX + rectW + offset.x + alignOffset.x) * scale;
-    const ly0 = -(rectY + offset.y + alignOffset.y) * scale;
-    const ly1 = -(rectY + rectH + offset.y + alignOffset.y) * scale;
+    const alignOffset = config.alignOffset || { x: 0, y: 0 };
+
+    // Model Space Coordinates (Global + Offset)
+    const lx0 = (rectX + offset.x - alignOffset.x) * scale;
+    const lx1 = (rectX + rectW + offset.x - alignOffset.x) * scale;
+    const ly0 = -(rectY + offset.y - alignOffset.y) * scale;
+    const ly1 = -(rectY + rectH + offset.y - alignOffset.y) * scale;
 
     // UVs - Standardized (u=x, v=y)
     // Matches Texture Origin = Top Left
@@ -457,8 +505,8 @@ function buildStitchedGeometry(
               const absX = node.bounds.x + localX;
               const absY = node.bounds.y + localY;
 
-              const modelX = (absX + offset.x + alignOffset.x) * scale;
-              const modelY = -(absY + offset.y + alignOffset.y) * scale;
+              const modelX = (absX + offset.x - alignOffset.x) * scale;
+              const modelY = -(absY + offset.y - alignOffset.y) * scale;
 
               // Use Original Layout for UVs
               const uLayout = (absX - bounds.minX) / bounds.width;
@@ -509,8 +557,8 @@ function buildStitchedGeometry(
               const absY = node.bounds.y + localY;
               const zOffset = (config.thickness || 1) / 2;
               // Back Vertices
-              const modelX = (absX + offset.x + alignOffset.x) * scale;
-              const modelY = -(absY + offset.y + alignOffset.y) * scale;
+              const modelX = (absX + offset.x - alignOffset.x) * scale;
+              const modelY = -(absY + offset.y - alignOffset.y) * scale;
               addVertex([modelX, modelY, -zOffset], [0, 0], [0, 0, -1], boneIdx);
             }
 
@@ -605,8 +653,8 @@ function buildStitchedGeometry(
   geometry.addGroup(0, frontIndices.length, 0);
   geometry.addGroup(frontIndices.length, backIndices.length, 1);
 
-  // 统一法线方向（含关节带），防止局部 Y 反转
-  geometry.computeVertexNormals();
+  // 🔧 修复：不再使用自动计算法线，使用我们手动设置的精确法线（[0,0,1] 和 [0,0,-1]）
+  // geometry.computeVertexNormals();
 
   return geometry;
 }
@@ -627,35 +675,44 @@ export const SkinnedFoldingMesh: React.FC<SkinnedFoldingMeshProps> = ({
   showWireframe = false,
   foldTimings: customTimings,
   jointInterpolation = 'arc',
-  gapSizeMultiplier = 1.0, // 🆕 连接器宽度缩放因子
+  gapSizeMultiplier = 1.0,
+  baseWidth = 2.0,
+  originX = 0, // 🆕 通过 Props 接收归一化原点
+  originY = 0,
+  creaseCurvature = 1.0,
+  xAxisMultiplier = 1.0,
+  yAxisMultiplier = 1.15,
+  nestingFactor = 0.15,
 }) => {
   const meshRef = useRef<THREE.SkinnedMesh>(null);
 
   // 构建所有数据
   const meshData = useMemo(() => {
-    const bounds = calculateBounds(panelTree);
+    // 🆕 组装动态让位算法配置
+    const allowanceConfig: AllowanceConfig = {
+      thickness,
+      baseWidth,
+      xAxisMultiplier,
+      yAxisMultiplier,
+      nestingFactor: nestingFactor * (gapSizeMultiplier || 1.0)
+    };
 
-    // 🔧 不再应用居中偏移，使用原始坐标
-    // 🔧 不再应用居中偏移，使用原始坐标 (Moved skeleton build down to use offsets)
-    // const skeletonBuilder ... (Reordered)
+    // 🆕 Calculate Dynamic Tree Offsets & GapSizes FIRST
+    const { offsets, gapSizes } = calculateTreeOffsets(panelTree, allowanceConfig);
 
-    // 🆕 计算全局 gapSize：基础值 * 缩放因子
-    const baseGapSize = Math.max(thickness * 1.5, 1.5);
-    const globalGapSize = baseGapSize * gapSizeMultiplier;
-
-    // 🆕 Calculate Tree Offsets
-    const offsets = calculateTreeOffsets(panelTree, globalGapSize);
+    // 🆕 Calculate Expanded Bounds (Used for UV and Origin Normalization)
+    const bounds = calculateBounds(panelTree, offsets);
 
     const skeletonBuilder = new SkeletonBuilder();
-    // Pass offsets to skeleton builder
-    const skeletonResult = skeletonBuilder.build(panelTree, scale, offsets);
+    // Pass offsets and alignOffset to skeleton builder
+    const skeletonResult = skeletonBuilder.build(panelTree, scale, offsets, { x: originX, y: originY });
 
     const geometry = buildStitchedGeometry(
       panelTree,
       skeletonResult.boneIndexMap,
       skeletonResult.boneWorldPositions,
       bounds,
-      { thickness, jointSegments, cornerRadius, scale, jointInterpolation, gapSize: globalGapSize, offsets },
+      { thickness, jointSegments, cornerRadius, scale, jointInterpolation, gapSizes, offsets, creaseCurvature, alignOffset: { x: originX, y: originY } },
       externalAtlas?.regions
     );
 
@@ -671,43 +728,31 @@ export const SkinnedFoldingMesh: React.FC<SkinnedFoldingMeshProps> = ({
       texture,
       timings,
     };
-  }, [panelTree, externalAtlas, thickness, cornerRadius, jointSegments, customTimings, scale, jointInterpolation, gapSizeMultiplier]);
+  }, [panelTree, externalAtlas, thickness, cornerRadius, jointSegments, customTimings, scale, jointInterpolation, gapSizeMultiplier, baseWidth, originX, originY, creaseCurvature, xAxisMultiplier, yAxisMultiplier, nestingFactor]);
 
-  // 绑定骨骼 - 使用 useLayoutEffect 确保在父组件(Center)测量之前完成绑定
+  // 绑定骨骼 - 确保骨骼矩阵最新
   useLayoutEffect(() => {
     if (!meshRef.current || !meshData.skeleton) return;
 
-    // 🔧 修复：清理旧骨骼，防止场景图中残留大量废弃骨骼导致状态异常
-    const childrenToRemove = meshRef.current.children.filter(c => c instanceof THREE.Bone && c !== meshData.rootBone);
-    childrenToRemove.forEach(c => meshRef.current?.remove(c));
-
-    // 🔧 修复：先将骨骼添加到 skinnedMesh，确保骨骼的世界矩阵包含所有父级变换
-    if (meshData.rootBone && !meshRef.current.children.includes(meshData.rootBone)) {
-      meshRef.current.add(meshData.rootBone);
-    }
-
-    // 强制更新世界矩阵，确保骨骼位置包含外层 group 的 centerOffset
-    meshRef.current.updateMatrixWorld(true);
-
-    // 使用单位矩阵绑定（因为骨骼已经在正确的世界坐标）
-    const bindMatrix = new THREE.Matrix4();
-    meshRef.current.bind(meshData.skeleton, bindMatrix);
-
-    // 计算逆矩阵
+    // 计算并更新逆变换矩阵
     meshData.skeleton.calculateInverses();
-    console.log('🦴 骨骼绑定完成');
+    meshRef.current.updateMatrixWorld(true);
+    console.log('🦴 骨骼系统同步完成');
   }, [meshData]);
 
-  // 更新骨骼旋转
+  // 更新骨骼旋转 (Explicit State Loop)
   useFrame(() => {
     if (!meshData.bones || !meshData.timings) return;
+
+    // PERFORMANCE: Read directly from Ref if available to avoid React Render Cycle
+    const progressValue = typeof foldProgress === 'number' ? foldProgress : foldProgress.current;
 
     updateBoneRotations(
       panelTree,
       meshData.bones,
       meshData.boneIndexMap,
       meshData.timings,
-      foldProgress
+      progressValue
     );
   });
 
@@ -783,7 +828,9 @@ export const SkinnedFoldingMesh: React.FC<SkinnedFoldingMeshProps> = ({
           material={materials}
           castShadow
           receiveShadow
-        />
+        >
+          {meshData.rootBone && <primitive object={meshData.rootBone} />}
+        </skinnedMesh>
       )}
 
       {showSkeleton && meshData.rootBone && (
@@ -858,8 +905,11 @@ function updateBoneRotations(root: PanelNode, bones: THREE.Bone[], boneIndexMap:
     if (joint && parentNode && timing) {
       let foldDirection: number;
       if (joint.type === 'horizontal') {
+        // Correct Logic: Bottom (y > parent) -> -1 (Rotate -90 X to bring -Y to +Z)
+        // Top (y < parent) -> 1 (Rotate +90 X to bring +Y to +Z)
         foldDirection = node.bounds.y > parentNode.bounds.y ? -1 : 1;
       } else {
+        // Vertical
         foldDirection = node.bounds.x > parentNode.bounds.x ? -1 : 1;
       }
 

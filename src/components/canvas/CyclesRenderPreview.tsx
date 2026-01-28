@@ -11,8 +11,10 @@ import { SEMANTIC_TOKENS } from '@genki/shared-theme';
 import type { MarkedLayer } from '../../types/core';
 import * as THREE from 'three';
 import { OrbitControls as ThreeOrbitControls } from 'three/addons/controls/OrbitControls.js';
+// WebGPURenderer will be imported dynamically
 import { NestedGroupFold } from './NestedGroupFold';
 import { SkinnedMeshBridge } from './SkinnedMeshBridge';
+import { MATERIAL_PRESETS } from '../ui/ParametricControls';
 import { usePBRMapsFromCraftLayers, DEFAULT_CRAFT_PBR_CONFIG, type CraftPBRConfig } from '../../hooks/usePBRMapsFromCraftLayers';
 import { use3DStore, useWebGPUStore } from '@genki/shared-stores';
 import { GroundProjectedEnv } from './GroundProjectedEnv';
@@ -811,6 +813,62 @@ const CraftAnnotationMesh: React.FC<CraftAnnotationMeshProps> = ({ layer, index 
 };
 
 // 主组件 - 全屏 overlay 窗口
+// Extracted Scene Content Component
+const CyclesSceneContent: React.FC<{
+  groundOffsetY: number;
+  clipmaskVectors: any[];
+  markedLayers: any[];
+  foldProgress: number;
+  foldSequence: any[];
+  rootPanelId: string | null;
+  drivenMap: any;
+  cyclesRenderMode: string;
+  geometryMode: 'nested' | 'skinned';
+  showSkeleton: boolean;
+  showWireframe: boolean;
+  foldEdgeWidth: number;
+  pbrConfig: any;
+  // 🆕 Folding Physics
+  creaseCurvature?: number;
+  jointInterpolation?: 'linear' | 'smooth' | 'arc';
+  xAxisMultiplier?: number;
+  yAxisMultiplier?: number;
+  nestingFactor?: number;
+}> = ({
+  groundOffsetY, clipmaskVectors, markedLayers, foldProgress, foldSequence, rootPanelId, drivenMap, cyclesRenderMode, geometryMode, showSkeleton, showWireframe, foldEdgeWidth, pbrConfig,
+  creaseCurvature, jointInterpolation, xAxisMultiplier, yAxisMultiplier, nestingFactor
+}) => (
+    <>
+      <Suspense fallback={<div style={{ color: 'white' }}>加载 3D 场景中...</div>}>
+        <CameraSetup />
+        <Suspense fallback={null}>
+          <group position={[0, groundOffsetY, 0]}>
+            <CraftScene3D
+              panels={clipmaskVectors}
+              craftLayers={markedLayers}
+              foldProgress={foldProgress}
+              foldSequence={foldSequence}
+              rootPanelId={rootPanelId}
+              drivenMap={drivenMap}
+              renderMode={cyclesRenderMode as 'realtime' | 'pathtracing' | 'hybrid'}
+              geometryMode={geometryMode}
+              showSkeleton={showSkeleton}
+              showWireframe={showWireframe}
+              foldEdgeWidth={foldEdgeWidth}
+              pbrConfig={pbrConfig}
+              creaseCurvature={creaseCurvature}
+              jointInterpolation={jointInterpolation}
+              xAxisMultiplier={xAxisMultiplier}
+              yAxisMultiplier={yAxisMultiplier}
+              nestingFactor={nestingFactor}
+            />
+          </group>
+        </Suspense>
+      </Suspense>
+      <CustomOrbitControls />
+    </>
+  );
+
 export const CyclesRenderPreview: React.FC = () => {
   const {
     cyclesPreviewOpen,
@@ -837,10 +895,48 @@ export const CyclesRenderPreview: React.FC = () => {
   );
 
   const [foldProgress, setFoldProgress] = React.useState(0);
+  const [useWebGPU, setUseWebGPU] = React.useState(false);
+  const [WebGPURendererClass, setWebGPURendererClass] = React.useState<any>(null); // Store constructor
   const [geometryMode, setGeometryMode] = React.useState<'nested' | 'skinned'>('skinned');
+
+  // Load WebGPU module dynamically when needed
+  useEffect(() => {
+    if (useWebGPU && !WebGPURendererClass) {
+      // 🚀 Pre-flight: Polyfill WebGPU constants if they are missing
+      // three/webgpu often accesses these at the top level of the module (e.g. GPUShaderStage.VERTEX)
+      // and crashes if they are not defined in the global scope.
+      if (typeof window !== 'undefined') {
+        if (!('GPUShaderStage' in window)) (window as any).GPUShaderStage = { VERTEX: 0x0001, FRAGMENT: 0x0002, COMPUTE: 0x0004 };
+        if (!('GPUBufferUsage' in window)) (window as any).GPUBufferUsage = { MAP_READ: 0x0001, MAP_WRITE: 0x0002, COPY_SRC: 0x0004, COPY_DST: 0x0008, INDEX: 0x0010, VERTEX: 0x0020, UNIFORM: 0x0040, STORAGE: 0x0080, INDIRECT: 0x0100, QUERY_RESOLVE: 0x0200 };
+        if (!('GPUColorWrite' in window)) (window as any).GPUColorWrite = { RED: 0x1, GREEN: 0x2, BLUE: 0x4, ALPHA: 0x8, ALL: 0xF };
+        if (!('GPUTextureUsage' in window)) (window as any).GPUTextureUsage = { COPY_SRC: 0x01, COPY_DST: 0x02, TEXTURE_BINDING: 0x04, STORAGE_BINDING: 0x08, RENDER_ATTACHMENT: 0x10 };
+        if (!('GPUMapMode' in window)) (window as any).GPUMapMode = { READ: 1, WRITE: 2 };
+      }
+
+      console.log('🚀 Attempting to load WebGPU engine...');
+      import('three/webgpu')
+        .then((module) => {
+          console.log('✅ WebGPU module loaded successfully');
+          setWebGPURendererClass(() => module.WebGPURenderer);
+        })
+        .catch((err) => {
+          console.error('❌ Failed to load three/webgpu:', err);
+          alert('WebGPU backend could not be loaded. This might be due to environment restrictions.');
+          setUseWebGPU(false);
+        });
+    }
+  }, [useWebGPU, WebGPURendererClass]);
+
   const [showSkeleton, setShowSkeleton] = React.useState(false);
   const [showWireframe, setShowWireframe] = React.useState(false);
   const [foldEdgeWidth, setFoldEdgeWidth] = React.useState(2);
+
+  // 🆕 Folding Physics state
+  const [creaseCurvature, setCreaseCurvature] = React.useState(1.0);
+  const [jointInterpolation, setJointInterpolation] = React.useState<'linear' | 'smooth' | 'arc'>('smooth');
+  const [xAxisMultiplier, setXAxisMultiplier] = React.useState(1.0);
+  const [yAxisMultiplier, setYAxisMultiplier] = React.useState(1.15);
+  const [nestingFactor, setNestingFactor] = React.useState(0.15);
   const groundOffsetY = use3DStore((s) => s.ground.offsetY || 0);
 
   // PBR 参数（此视图不提供调参面板，避免污染主 3D 视图）
@@ -863,31 +959,157 @@ export const CyclesRenderPreview: React.FC = () => {
       {/* 内容区 */}
       <div style={styles.content}>
         {/* 3D 画布 */}
-        <div style={styles.canvasArea}>
-          <Canvas shadows dpr={[1, 2]} gl={{ antialias: true }}>
-            <Suspense fallback={<div style={{ color: 'white' }}>加载 3D 场景中...</div>}>
-              <CameraSetup />
-              <Suspense fallback={null}>
-                <group position={[0, groundOffsetY, 0]}>
-                  <CraftScene3D
-                    panels={clipmaskVectors}
-                    craftLayers={markedLayers}
-                    foldProgress={foldProgress}
-                    foldSequence={foldSequence}
-                    rootPanelId={rootPanelId}
-                    drivenMap={drivenMap}
-                    renderMode={cyclesRenderMode as 'realtime' | 'pathtracing' | 'hybrid'}
-                    geometryMode={geometryMode}
-                    showSkeleton={showSkeleton}
-                    showWireframe={showWireframe}
-                    foldEdgeWidth={foldEdgeWidth}
-                    pbrConfig={pbrConfig}
-                  />
-                </group>
-              </Suspense>
-            </Suspense>
-            <CustomOrbitControls />
-          </Canvas>
+        <div style={styles.canvasArea} id="cycles-canvas-container">
+          {/* Show loading if WebGPU is requested but module not yet loaded */}
+          {useWebGPU ? (
+            !WebGPURendererClass ? (
+              <div style={{ display: 'flex', height: '100%', alignItems: 'center', justifyContent: 'center', color: '#888' }}>
+                Loading WebGPU Engine...
+              </div>
+            ) : (
+              <Canvas
+                key="webgpu"
+                shadows
+                dpr={[1, 2]}
+                gl={(canvasArg) => {
+                  try {
+                    // 🛡️ Native WebGPU & Toggle Check
+                    // ONLY use WebGPURenderer if explicitly requested AND natively supported.
+                    const hasNativeWebGPU = typeof navigator !== 'undefined' && (navigator as any).gpu;
+                    const shouldAttemptWebGPU = useWebGPU && WebGPURendererClass && hasNativeWebGPU;
+
+                    if (shouldAttemptWebGPU) {
+                      // 🛡️ Robust Canvas Recovery (Improved for Figma)
+                      let canvas: HTMLCanvasElement | null = null;
+
+                      const isRealCanvas = (el: any) => el && (el instanceof HTMLCanvasElement || el.nodeName === 'CANVAS');
+
+                      if (isRealCanvas(canvasArg)) {
+                        canvas = (canvasArg as any) as HTMLCanvasElement;
+                      } else if (canvasArg && isRealCanvas((canvasArg as any).domElement)) {
+                        canvas = (canvasArg as any).domElement;
+                      } else {
+                        canvas = document.querySelector('#cycles-canvas-container canvas') as HTMLCanvasElement;
+                      }
+
+                      if (canvas && typeof (canvas as any).getContext === 'function') {
+                        console.log('🚀 Cycles: Booting WebGPU engine on recovered canvas');
+                        const Renderer = WebGPURendererClass;
+                        // @ts-ignore
+                        const renderer = new Renderer({ canvas, antialias: true, alpha: false, forceWebGL: false });
+
+                        let isReady = false;
+                        const originalRender = renderer.render;
+                        renderer.render = (...args: any[]) => {
+                          if (isReady) return originalRender.apply(renderer, args);
+                        };
+
+                        renderer.init().then(() => {
+                          console.log('✅ Cycles: WebGPU Backend Initialized');
+                          isReady = true;
+                        }).catch((e: any) => {
+                          console.error('❌ Cycles: WebGPU Render Init Error:', e);
+                        });
+
+                        return renderer;
+                      }
+                    }
+
+                    // 🔙 Classic Fallback (Strictly standard WebGLRenderer to avoid NodeMaterial lag)
+                    console.log('ℹ️ Cycles: Using standard WebGLRenderer');
+                    let fallbackCanvas: any = null;
+                    const isRealCanvas = (el: any) => el && (el instanceof HTMLCanvasElement || el.nodeName === 'CANVAS');
+
+                    if (isRealCanvas(canvasArg)) {
+                      fallbackCanvas = canvasArg;
+                    } else {
+                      fallbackCanvas = document.querySelector('#cycles-canvas-container canvas');
+                    }
+
+                    return new THREE.WebGLRenderer({
+                      canvas: fallbackCanvas || undefined,
+                      antialias: true,
+                      alpha: false
+                    });
+                  } catch (e) {
+                    console.error('❌ Cycles: Renderer Factory Error:', e);
+                    return new THREE.WebGLRenderer({ antialias: true });
+                  }
+                }}
+                camera={{ position: [200, 150, 200], fov: 45 }}
+              >
+                <CyclesSceneContent
+                  groundOffsetY={groundOffsetY}
+                  clipmaskVectors={clipmaskVectors}
+                  markedLayers={markedLayers}
+                  foldProgress={foldProgress}
+                  foldSequence={foldSequence}
+                  rootPanelId={rootPanelId}
+                  drivenMap={drivenMap}
+                  cyclesRenderMode={cyclesRenderMode}
+                  geometryMode={geometryMode}
+                  showSkeleton={showSkeleton}
+                  showWireframe={showWireframe}
+                  foldEdgeWidth={foldEdgeWidth}
+                  pbrConfig={pbrConfig}
+                  creaseCurvature={creaseCurvature}
+                  jointInterpolation={jointInterpolation}
+                  xAxisMultiplier={xAxisMultiplier}
+                  yAxisMultiplier={yAxisMultiplier}
+                  nestingFactor={nestingFactor}
+                />
+              </Canvas>
+            )
+          ) : (
+            <Canvas
+              key="webgl"
+              shadows
+              dpr={[1, 2]}
+              gl={(canvasArg) => {
+                // 🛡️ Robust Canvas Recovery (Improved for Figma)
+                let canvas: HTMLCanvasElement | null = null;
+                const isRealCanvas = (el: any) => el && (el instanceof HTMLCanvasElement || el.nodeName === 'CANVAS');
+
+                if (isRealCanvas(canvasArg)) {
+                  canvas = (canvasArg as any) as HTMLCanvasElement;
+                } else if (canvasArg && isRealCanvas((canvasArg as any).domElement)) {
+                  canvas = (canvasArg as any).domElement;
+                } else {
+                  canvas = document.querySelector('#cycles-canvas-container canvas') as HTMLCanvasElement;
+                }
+
+                return new THREE.WebGLRenderer({
+                  canvas: canvas || undefined,
+                  powerPreference: 'high-performance',
+                  antialias: true,
+                  alpha: false,
+                  preserveDrawingBuffer: true,
+                });
+              }}
+              camera={{ position: [200, 150, 200], fov: 45 }}
+            >
+              <CyclesSceneContent
+                groundOffsetY={groundOffsetY}
+                clipmaskVectors={clipmaskVectors}
+                markedLayers={markedLayers}
+                foldProgress={foldProgress}
+                foldSequence={foldSequence}
+                rootPanelId={rootPanelId}
+                drivenMap={drivenMap}
+                cyclesRenderMode={cyclesRenderMode}
+                geometryMode={geometryMode}
+                showSkeleton={showSkeleton}
+                showWireframe={showWireframe}
+                foldEdgeWidth={foldEdgeWidth}
+                pbrConfig={pbrConfig}
+                creaseCurvature={creaseCurvature}
+                jointInterpolation={jointInterpolation}
+                xAxisMultiplier={xAxisMultiplier}
+                yAxisMultiplier={yAxisMultiplier}
+                nestingFactor={nestingFactor}
+              />
+            </Canvas>
+          )}
         </div>
 
         {/* 控制面板 */}
@@ -907,6 +1129,19 @@ export const CyclesRenderPreview: React.FC = () => {
             onShowWireframeChange={setShowWireframe}
             foldEdgeWidth={foldEdgeWidth}
             onFoldEdgeWidthChange={setFoldEdgeWidth}
+            useWebGPU={useWebGPU}
+            onUseWebGPUChange={setUseWebGPU}
+            // 🆕 Physics props
+            creaseCurvature={creaseCurvature}
+            onCreaseCurvatureChange={setCreaseCurvature}
+            jointInterpolation={jointInterpolation}
+            onJointInterpolationChange={setJointInterpolation}
+            xAxisMultiplier={xAxisMultiplier}
+            onXAxisMultiplierChange={setXAxisMultiplier}
+            yAxisMultiplier={yAxisMultiplier}
+            onYAxisMultiplierChange={setYAxisMultiplier}
+            nestingFactor={nestingFactor}
+            onNestingFactorChange={setNestingFactor}
           />
         </div>
       </div>
@@ -926,9 +1161,17 @@ interface CraftScene3DProps {
   showWireframe: boolean;
   foldEdgeWidth: number;
   pbrConfig: CraftPBRConfig;
+  creaseCurvature?: number;
+  jointInterpolation?: 'linear' | 'smooth' | 'arc';
+  xAxisMultiplier?: number;
+  yAxisMultiplier?: number;
+  nestingFactor?: number;
 }
 
-const CraftScene3D: React.FC<CraftScene3DProps> = ({ panels, craftLayers, foldProgress, foldSequence, rootPanelId, drivenMap, renderMode, geometryMode, showSkeleton, showWireframe, foldEdgeWidth, pbrConfig }) => {
+const CraftScene3D: React.FC<CraftScene3DProps> = ({
+  panels, craftLayers, foldProgress, foldSequence, rootPanelId, drivenMap, renderMode, geometryMode, showSkeleton, showWireframe, foldEdgeWidth, pbrConfig,
+  creaseCurvature, jointInterpolation, xAxisMultiplier, yAxisMultiplier, nestingFactor = 0.15,
+}) => {
   // 提升模型缩放，避免相对 HDR 过小导致视角难调
   const scale = 1.0;
   const thickness = 0.8;
@@ -1096,15 +1339,16 @@ const CraftScene3D: React.FC<CraftScene3DProps> = ({ panels, craftLayers, foldPr
                   jointWidth={foldEdgeWidth}
                   scale={scale}
                   thickness={thickness}
-                  offsetX={0}
-                  offsetY={0}
-                  centerX={0}
-                  centerY={0}
                   craftLayers={craftLayers}
                   renderConfig={renderConfig}
                   showSkeleton={showSkeleton}
                   showWireframe={showWireframe}
                   pbrConfig={pbrConfig}
+                  creaseCurvature={creaseCurvature}
+                  jointInterpolation={jointInterpolation}
+                  xAxisMultiplier={xAxisMultiplier}
+                  yAxisMultiplier={yAxisMultiplier}
+                  nestingFactor={nestingFactor}
                 />
               </group>
             ) : (
@@ -1166,6 +1410,19 @@ interface ControlPanelProps {
   onShowWireframeChange: (show: boolean) => void;
   foldEdgeWidth: number;
   onFoldEdgeWidthChange: (width: number) => void;
+  useWebGPU: boolean;
+  onUseWebGPUChange: (use: boolean) => void;
+  // 🆕 Physics Props
+  creaseCurvature: number;
+  onCreaseCurvatureChange: (val: number) => void;
+  jointInterpolation: 'linear' | 'smooth' | 'arc';
+  onJointInterpolationChange: (val: 'linear' | 'smooth' | 'arc') => void;
+  xAxisMultiplier: number;
+  onXAxisMultiplierChange: (val: number) => void;
+  yAxisMultiplier: number;
+  onYAxisMultiplierChange: (val: number) => void;
+  nestingFactor: number;
+  onNestingFactorChange: (val: number) => void;
 }
 
 const SidebarControlPanel: React.FC<ControlPanelProps> = ({
@@ -1182,6 +1439,18 @@ const SidebarControlPanel: React.FC<ControlPanelProps> = ({
   onShowWireframeChange,
   foldEdgeWidth,
   onFoldEdgeWidthChange,
+  useWebGPU,
+  onUseWebGPUChange,
+  creaseCurvature,
+  onCreaseCurvatureChange,
+  jointInterpolation,
+  onJointInterpolationChange,
+  xAxisMultiplier,
+  onXAxisMultiplierChange,
+  yAxisMultiplier,
+  onYAxisMultiplierChange,
+  nestingFactor,
+  onNestingFactorChange,
 }) => {
   const [tab, setTab] = React.useState<'settings' | 'hdr' | 'layers'>('settings');
 
@@ -1231,6 +1500,18 @@ const SidebarControlPanel: React.FC<ControlPanelProps> = ({
                 <option key={m.value} value={m.value}>{m.label}</option>
               ))}
             </select>
+
+            {/* 🆕 WebGPU 开关 */}
+            <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '12px', color: '#eee', marginTop: 10, cursor: 'pointer' }}>
+              <input
+                type="checkbox"
+                checked={useWebGPU}
+                onChange={(e) => onUseWebGPUChange(e.target.checked)}
+              />
+              <span style={{ color: useWebGPU ? '#a78bfa' : '#eee' }}>
+                启用 WebGPU (实验性)
+              </span>
+            </label>
           </div>
 
           {/* 几何体模式 */}
@@ -1313,6 +1594,140 @@ const SidebarControlPanel: React.FC<ControlPanelProps> = ({
               </span>
             </div>
           </div>
+
+          {/* 🆕 折痕物理设置 (仅 SkinnedMesh 模式) */}
+          {geometryMode === 'skinned' && (
+            <>
+              <div style={controlStyles.section}>
+                <label style={controlStyles.label}>折痕预设</label>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '6px' }}>
+                  {MATERIAL_PRESETS.map((preset) => (
+                    <button
+                      key={preset.id}
+                      onClick={() => {
+                        // 💉 Additive Mapping: Only overwrite baseline physics.
+                        // We also apply the preset's baseWidth as a sensible default.
+                        onCreaseCurvatureChange(preset.curvature);
+                        onJointInterpolationChange(preset.interpolation);
+                        onXAxisMultiplierChange(preset.xMultiplier);
+                        onYAxisMultiplierChange(preset.yMultiplier);
+                        onNestingFactorChange(preset.nesting);
+                        if ((preset as any).baseWidth) {
+                          onFoldEdgeWidthChange((preset as any).baseWidth);
+                        }
+                      }}
+                      style={{
+                        padding: '6px 4px',
+                        borderRadius: '4px',
+                        border: `1px solid ${creaseCurvature === preset.curvature ? '#fbbf24' : '#444'}`,
+                        background: creaseCurvature === preset.curvature ? '#451a03' : '#111',
+                        color: '#fff',
+                        fontSize: '10px',
+                        cursor: 'pointer',
+                        whiteSpace: 'nowrap',
+                      }}
+                    >
+                      {preset.name}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div style={controlStyles.section}>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <label style={controlStyles.label}>折痕曲率</label>
+                  <span style={{ fontSize: '11px', color: '#fbbf24' }}>{creaseCurvature.toFixed(2)}</span>
+                </div>
+                <input
+                  type="range"
+                  min="0.1"
+                  max="5.0"
+                  step="0.05"
+                  value={creaseCurvature}
+                  onChange={(e) => onCreaseCurvatureChange(Number(e.target.value))}
+                  style={{ width: '100%', cursor: 'pointer' }}
+                />
+              </div>
+
+              <div style={controlStyles.section}>
+                <label style={controlStyles.label}>插值模型</label>
+                <div style={{ display: 'flex', gap: '4px' }}>
+                  {(['linear', 'smooth', 'arc'] as const).map((mode) => (
+                    <button
+                      key={mode}
+                      onClick={() => onJointInterpolationChange(mode)}
+                      style={{
+                        flex: 1,
+                        padding: '4px',
+                        borderRadius: '4px',
+                        border: `1px solid ${jointInterpolation === mode ? '#fbbf24' : '#444'}`,
+                        background: jointInterpolation === mode ? '#451a03' : '#111',
+                        color: '#fff',
+                        fontSize: '10px',
+                        cursor: 'pointer',
+                        textTransform: 'capitalize',
+                      }}
+                    >
+                      {mode}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div style={{ ...controlStyles.section, borderBottom: 'none' }}>
+                <label style={{ ...controlStyles.label, color: '#a78bfa', fontWeight: 600 }}>科学余量补偿 (Creep)</label>
+
+                <div style={{ marginTop: 8 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <label style={{ ...controlStyles.label, marginBottom: 2 }}>X-Axis Multiplier</label>
+                    <span style={{ fontSize: '10px', color: '#a78bfa' }}>{xAxisMultiplier.toFixed(2)}</span>
+                  </div>
+                  <input
+                    type="range"
+                    min="0.5"
+                    max="2.0"
+                    step="0.01"
+                    value={xAxisMultiplier}
+                    onChange={(e) => onXAxisMultiplierChange(Number(e.target.value))}
+                    style={{ width: '100%', cursor: 'pointer' }}
+                  />
+                </div>
+
+                <div style={{ marginTop: 8 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <label style={{ ...controlStyles.label, marginBottom: 2 }}>Y-Axis Multiplier</label>
+                    <span style={{ fontSize: '10px', color: '#a78bfa' }}>{yAxisMultiplier.toFixed(2)}</span>
+                  </div>
+                  <input
+                    type="range"
+                    min="0.5"
+                    max="2.0"
+                    step="0.01"
+                    value={yAxisMultiplier}
+                    onChange={(e) => onYAxisMultiplierChange(Number(e.target.value))}
+                    style={{ width: '100%', cursor: 'pointer' }}
+                  />
+                </div>
+
+                <div style={{ marginTop: 8 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <label style={{ ...controlStyles.label, marginBottom: 2 }}>Nesting Factor</label>
+                    <span style={{ fontSize: '10px', color: '#a78bfa' }}>{nestingFactor.toFixed(2)}</span>
+                  </div>
+                  <input
+                    type="range"
+                    min="0.0"
+                    max="0.5"
+                    step="0.01"
+                    value={nestingFactor}
+                    onChange={(e) => onNestingFactorChange(Number(e.target.value))}
+                    style={{ width: '100%', cursor: 'pointer' }}
+                  />
+                  <div style={{ fontSize: '9px', color: '#666', marginTop: 4 }}>层级嵌套补偿，防止高阶面板重叠</div>
+                </div>
+              </div>
+            </>
+          )}
         </>
       )}
 

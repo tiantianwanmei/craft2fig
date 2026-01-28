@@ -4,6 +4,7 @@
  */
 
 import type * as THREE from 'three';
+import type React from 'react';
 
 /** 2D 点 */
 export interface Point2D {
@@ -137,6 +138,8 @@ export interface StitchConfig {
   cornerRadius: number;
   /** 纸张厚度 */
   thickness: number;
+  /** 归一化对齐偏移 */
+  alignOffset?: Point2D;
   /** 是否生成背面 */
   doubleSided: boolean;
 }
@@ -216,7 +219,7 @@ export interface SkinnedFoldingMeshProps {
   /** 纹理图集 (可选，不提供则自动生成) */
   textureAtlas?: TextureAtlasResult;
   /** 折叠进度 0-1 */
-  foldProgress: number;
+  foldProgress: number | React.MutableRefObject<number>;
   /** 纸张厚度 */
   thickness?: number;
   /** 圆角半径 */
@@ -237,6 +240,20 @@ export interface SkinnedFoldingMeshProps {
   jointInterpolation?: 'linear' | 'smooth' | 'arc';
   /** 🆕 连接器宽度缩放因子 (默认 1.0) */
   gapSizeMultiplier?: number;
+  /** 🆕 基础折痕宽度 (由 UI 滑块提供，用于物理计算) */
+  baseWidth?: number;
+  /** 🆕 归一化原点 X */
+  originX?: number;
+  /** 🆕 归一化原点 Y */
+  originY?: number;
+  /** 🆕 折痕曲率 (默认 1.0) */
+  creaseCurvature?: number;
+  /** 🆕 X轴补偿系数 (默认 1.0) */
+  xAxisMultiplier?: number;
+  /** 🆕 Y轴补偿系数 (默认 1.15) */
+  yAxisMultiplier?: number;
+  /** 🆕 嵌套深度因子 (默认 0.15) */
+  nestingFactor?: number;
 }
 
 /** 折叠时序配置 */

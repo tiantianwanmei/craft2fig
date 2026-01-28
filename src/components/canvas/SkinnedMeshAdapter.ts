@@ -33,7 +33,7 @@ export function convertToSkinnedPanelNode(
   let jointInfo: JointInfo | undefined;
 
   if (parentNode) {
-    jointInfo = calculateJointInfo(node, parentNode, cfg);
+    jointInfo = calculateJointInfo(node, parentNode, cfg as Required<AdapterConfig>);
   }
 
   // 转换当前节点
@@ -53,6 +53,7 @@ export function convertToSkinnedPanelNode(
     parentId: parentNode?.id ?? null,
     children: [],
     jointInfo,
+    rasterImage: node.rasterImage,
   };
 
   // 递归转换子节点

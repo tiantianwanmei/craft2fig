@@ -220,8 +220,11 @@ export class TextureAtlasBuilder {
         console.error('❌ 图像加载失败:', e);
         reject(e);
       };
-      // 确保 base64 字符串有正确的 data: 前缀
-      if (!src.startsWith('data:')) {
+      // Check for Blob or HTTP URLs
+      if (src.startsWith('blob:') || src.startsWith('http')) {
+        img.src = src;
+      } else if (!src.startsWith('data:')) {
+        // Assume base64 string without prefix
         img.src = `data:image/png;base64,${src}`;
       } else {
         img.src = src;

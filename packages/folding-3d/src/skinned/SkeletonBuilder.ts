@@ -19,13 +19,15 @@ export class SkeletonBuilder {
   private boneWorldPositions: Map<string, Point2D> = new Map();
   private scale: number = 1;
   private offsets: Map<string, { x: number; y: number }> = new Map();
+  private alignOffset: Point2D = { x: 0, y: 0 };
 
-  build(root: PanelNode, scale: number = 1, offsets?: Map<string, { x: number; y: number }>): SkeletonBuildResult {
+  build(root: PanelNode, scale: number = 1, offsets?: Map<string, { x: number; y: number }>, alignOffset?: Point2D): SkeletonBuildResult {
     this.bones = [];
     this.boneIndexMap.clear();
     this.bonePanelMap.clear();
     this.boneWorldPositions.clear();
     this.scale = scale;
+    this.alignOffset = alignOffset || { x: 0, y: 0 };
     if (offsets) {
       this.offsets = offsets;
     } else {
@@ -66,12 +68,12 @@ export class SkeletonBuilder {
     const bone = new THREE.Bone();
     bone.name = `bone_${node.id}`;
 
-    // 根骨骼在面板中心的 3D 位置（使用原始坐标 + 偏移）
+    // 根骨骼在面板中心的 3D 位置（使用原始坐标 + 偏移 - 归一化偏移）
     const offset = this.offsets.get(node.id) || { x: 0, y: 0 };
     const pos2D = { x: node.center.x + offset.x, y: node.center.y + offset.y };
     bone.position.set(
-      pos2D.x * this.scale,
-      -pos2D.y * this.scale,
+      (pos2D.x - this.alignOffset.x) * this.scale,
+      -(pos2D.y - this.alignOffset.y) * this.scale,
       0
     );
 

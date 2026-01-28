@@ -23,6 +23,8 @@ type PendingRequest = {
     reject: (error: Error) => void;
 };
 
+import PBRComputeWorker from './pbrCompute.worker?worker&inline';
+
 class PBRComputeClient {
     private worker: Worker | null = null;
     private pendingRequests = new Map<string, PendingRequest>();
@@ -33,9 +35,15 @@ class PBRComputeClient {
     private initWorker() {
         if (this.worker) return;
 
-        this.worker = new Worker(new URL('./pbrCompute.worker.ts', import.meta.url), {
-            type: 'module',
-        });
+        try {
+            this.worker = new PBRComputeWorker();
+        } catch (e) {
+            console.error('❌ Failed to initialize PBR Worker:', e);
+            // Fallback strategy if needed, but inlining usually works
+        }
+
+
+        if (!this.worker) return;
 
         this.worker.onmessage = (e: MessageEvent<PBRComputeResponse | PBRComputeError>) => {
             const { type, id } = e.data;

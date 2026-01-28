@@ -18,6 +18,13 @@ export interface WeightConfig {
    * - 'arc': 圆弧模拟 (正弦过渡，适合较宽的圆角)
    */
   interpolation?: 'linear' | 'smooth' | 'arc';
+  /**
+   * 折痕曲率 (0.1 - 5.0)
+   * - 1.0: 标准
+   * - > 1.0: 更尖锐 (折叠更集中在中心线)
+   * - < 1.0: 更圆润 (折叠更分散)
+   */
+  creaseCurvature?: number;
 }
 
 /**
@@ -57,14 +64,24 @@ export function calculateSkinData(
       break;
 
     case 'crease':
+      // 应用曲率调整 (Symmetric Power Curve)
+      // curvature > 1.0: 挤压中间，折痕变尖锐
+      // curvature < 1.0: 拉伸两端，折痕变圆滑
+      let adjustedT = t;
+      const curvature = config.creaseCurvature ?? 1.0;
+      if (curvature !== 1.0) {
+        const p = 1 / curvature;
+        adjustedT = 0.5 + Math.sign(t - 0.5) * Math.pow(Math.abs(t - 0.5) * 2, p) / 2;
+      }
+
       if (interpolation === 'linear') {
-        weightChild = t;
+        weightChild = adjustedT;
       } else if (interpolation === 'smooth') {
-        // SmoothStep: 两端平缓，中间陡峭
-        weightChild = t * t * (3 - 2 * t);
+        // SmoothStep
+        weightChild = adjustedT * adjustedT * (3 - 2 * adjustedT);
       } else if (interpolation === 'arc') {
-        // 正弦插值: 模拟圆弧
-        weightChild = Math.sin(t * Math.PI / 2);
+        // 正弦插值
+        weightChild = Math.sin(adjustedT * Math.PI / 2);
       }
       weightParent = 1 - weightChild;
       break;

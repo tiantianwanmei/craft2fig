@@ -46,7 +46,6 @@ export const GroundProjectedEnv: React.FC<GroundProjectedEnvProps> = ({
   return (
     <Environment
       map={texture}
-      background // 🔧 恢复 background 属性，确保投影模式下能看到背景
       ground={{
         height,
         radius,

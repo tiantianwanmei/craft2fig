@@ -56,7 +56,8 @@ class OcclusionComputeClient {
     if (this.wasmInitPromise) return this.wasmInitPromise;
     this.wasmInitPromise = (async () => {
       try {
-        const wasmUrl = new URL('wasm/wasm_occlusion.wasm', window.location.href).toString();
+        // Use relative path directly to avoid 'Invalid URL' crash with new URL(..., 'about:blank')
+        const wasmUrl = 'wasm/wasm_occlusion.wasm';
         if (import.meta.env.DEV) {
           console.log('[wasm-occlusion] fetching:', wasmUrl);
         }

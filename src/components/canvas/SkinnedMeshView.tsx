@@ -65,12 +65,19 @@ interface SkinnedMeshViewProps {
   rootId: string;
   drivenMap: Record<string, string[]>;
   nameMap: Record<string, string>;
-  foldProgress: number;
+  foldProgress: number | React.MutableRefObject<number>;
   thickness?: number;
   cornerRadius?: number;
   showSkeleton?: boolean;
   showWireframe?: boolean;
   yFlipBaseline?: number | null;
+  imageMap?: Record<string, { url: string | null }>;
+  gapSizeMultiplier?: number;
+  creaseCurvature?: number;
+  jointInterpolation?: 'linear' | 'smooth' | 'arc';
+  xAxisMultiplier?: number;
+  yAxisMultiplier?: number;
+  nestingFactor?: number;
 }
 
 export const SkinnedMeshView: React.FC<SkinnedMeshViewProps> = ({
@@ -84,6 +91,13 @@ export const SkinnedMeshView: React.FC<SkinnedMeshViewProps> = ({
   showSkeleton = false,
   showWireframe = false,
   yFlipBaseline = null,
+  imageMap,
+  gapSizeMultiplier = 1.0,
+  creaseCurvature = 1.0,
+  jointInterpolation = 'smooth',
+  xAxisMultiplier = 1.0,
+  yAxisMultiplier = 1.15,
+  nestingFactor = 0.15,
 }) => {
   const vectorsFor3D = useMemo(() => {
     if (yFlipBaseline === null || yFlipBaseline === undefined) {
@@ -100,11 +114,25 @@ export const SkinnedMeshView: React.FC<SkinnedMeshViewProps> = ({
     const tree = buildTopologyTree({ vectors: vectorsFor3D, rootId, drivenMap, nameMap, yFlipBaseline: null });
     if (!tree) return null;
 
+    // 注入图片数据
+    if (imageMap) {
+      const traverse = (node: import('./RecursiveFoldingBox').PanelNode) => {
+        // 尝试获取 NORMAL 工艺的图片，如果没有则尝试无后缀或其他
+        const key = `${node.id}_NORMAL`;
+        const imgData = imageMap[key] || imageMap[node.id];
+        if (imgData?.url) {
+          node.rasterImage = imgData.url;
+        }
+        node.children.forEach(traverse);
+      };
+      traverse(tree);
+    }
+
     return convertToSkinnedPanelNode(tree, null, {
       jointWidth: cornerRadius,
       maxFoldAngle: Math.PI / 2,
     });
-  }, [vectorsFor3D, rootId, drivenMap, nameMap, cornerRadius]);
+  }, [vectorsFor3D, rootId, drivenMap, nameMap, cornerRadius, imageMap]);
 
   // 🔍 调试：打印 SkinnedMeshView 渲染状态
   useEffect(() => {
@@ -112,11 +140,11 @@ export const SkinnedMeshView: React.FC<SkinnedMeshViewProps> = ({
       hasPanelTree: !!panelTree,
       vectorsCount: vectorsFor3D.length,
       rootId,
-      foldProgress,
+      foldProgress: typeof foldProgress === 'number' ? foldProgress : foldProgress.current,
       thickness,
       cornerRadius,
     });
-  }, [panelTree, vectorsFor3D.length, rootId, foldProgress, thickness, cornerRadius]);
+  }, [panelTree, vectorsFor3D.length, rootId, thickness, cornerRadius]);
 
   // 根据 drivenMap 生成折叠时序
   const foldTimings = useMemo(() => {
@@ -157,11 +185,6 @@ export const SkinnedMeshView: React.FC<SkinnedMeshViewProps> = ({
     <group
       rotation={[-Math.PI / 2, 0, 0]}
       scale={[transform.scale, transform.scale, transform.scale]}
-      position={[
-        -transform.offsetX * transform.scale,
-        0,
-        transform.offsetY * transform.scale,
-      ]}
     >
       <SkinnedFoldingMesh
         panelTree={panelTree}
@@ -172,6 +195,12 @@ export const SkinnedMeshView: React.FC<SkinnedMeshViewProps> = ({
         showSkeleton={showSkeleton}
         showWireframe={showWireframe}
         foldTimings={foldTimings}
+        gapSizeMultiplier={gapSizeMultiplier}
+        creaseCurvature={creaseCurvature}
+        jointInterpolation={jointInterpolation}
+        xAxisMultiplier={xAxisMultiplier}
+        yAxisMultiplier={yAxisMultiplier}
+        nestingFactor={nestingFactor}
         materialProps={{
           roughness: 0.7,
           metalness: 0.1,

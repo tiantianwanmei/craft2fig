@@ -1,21 +1,40 @@
 import { createRoot } from 'react-dom/client'
+/**
+ * 🚀 WebGPU Global Polyfills
+ * three/webgpu often accesses these constants at module level.
+ * In restricted environments (like Figma iframe without WebGPU), they may be missing and cause crashes upon import.
+ */
+if (typeof window !== 'undefined') {
+  if (!('GPUShaderStage' in window)) (window as any).GPUShaderStage = { VERTEX: 0x0001, FRAGMENT: 0x0002, COMPUTE: 0x0004 };
+  if (!('GPUBufferUsage' in window)) (window as any).GPUBufferUsage = { MAP_READ: 0x0001, MAP_WRITE: 0x0002, COPY_SRC: 0x0004, COPY_DST: 0x0008, INDEX: 0x0010, VERTEX: 0x0020, UNIFORM: 0x0040, STORAGE: 0x0080, INDIRECT: 0x0100, QUERY_RESOLVE: 0x0200 };
+  if (!('GPUColorWrite' in window)) (window as any).GPUColorWrite = { RED: 0x1, GREEN: 0x2, BLUE: 0x4, ALPHA: 0x8, ALL: 0xF };
+  if (!('GPUTextureUsage' in window)) (window as any).GPUTextureUsage = { COPY_SRC: 0x01, COPY_DST: 0x02, TEXTURE_BINDING: 0x04, STORAGE_BINDING: 0x08, RENDER_ATTACHMENT: 0x10 };
+  if (!('GPUMapMode' in window)) (window as any).GPUMapMode = { READ: 1, WRITE: 2 };
+}
+
 import './styles/globals.css'
 import App from './App'
 
 import React from 'react'
 import * as THREE from 'three'
 
-function getUrlBasename(url: string): string {
+function getUrlBasename(url: string | undefined | null): string {
+  if (!url) return ''
   try {
-    const u = new URL(url, window.location.origin)
+    // Figma iframe location.origin can be "null" string
+    const origin = (window.location.origin === 'null' || !window.location.origin) ? 'http://localhost' : window.location.origin
+
+    // If url is already absolute (contains ://), origin is ignored by URL constructor
+    const u = new URL(url, origin)
     const pathname = u.pathname || ''
     const idx = pathname.lastIndexOf('/')
-    return idx >= 0 ? pathname.slice(idx) : pathname
-  } catch {
+    return idx >= 0 ? pathname.slice(idx + 1) : pathname
+  } catch (e) {
+    // If it's a base64 or blob URL, the constructor might throw if not handled correctly in this env
     const q = url.indexOf('?')
     const cleaned = q >= 0 ? url.slice(0, q) : url
     const idx = cleaned.lastIndexOf('/')
-    return idx >= 0 ? cleaned.slice(idx) : cleaned
+    return idx >= 0 ? cleaned.slice(idx + 1) : cleaned
   }
 }
 
@@ -62,6 +81,50 @@ function isDefaultDreiCubemapRequest(urls: unknown): boolean {
 let cubeTextureFallbackInstalled = false
 let defaultDreiCubemapWarned = false
 let imageLoaderFallbackInstalled = false
+// 🚀 Global URL Protector
+// In some environments (like Figma iframe), new URL() with relative paths can crash if origin is not set correctly.
+// This override ensures it never throws and provides safe logging.
+const __origURL = window.URL;
+function SafeURL(url: string | URL, base?: string | URL): URL {
+  try {
+    const sUrl = String(url);
+    const sBase = base ? String(base) : undefined;
+
+    // If it's a relative path and base is a data URI or problematic, the URL constructor will throw.
+    if (sBase && sBase.startsWith('data:') && !sUrl.includes('://')) {
+      const dummyOrigin = (window.location.origin === 'null' || !window.location.origin) ? 'http://localhost' : window.location.origin;
+      return new __origURL(sUrl, dummyOrigin);
+    }
+    return new __origURL(url, base);
+  } catch (e) {
+    if (String(url).length < 200) {
+      console.warn('[Genki] Intercepted Invalid URL:', { url, base });
+    }
+    try {
+      const dummyOrigin = (window.location.origin === 'null' || !window.location.origin) ? 'http://localhost' : window.location.origin;
+      const safeBase = (base && String(base).startsWith('data:')) ? dummyOrigin : (base || dummyOrigin);
+      return new __origURL(String(url), safeBase);
+    } catch (e2) {
+      const fallback = new __origURL('http://localhost/fallback');
+      Object.defineProperties(fallback, {
+        href: { value: String(url) },
+        toString: { value: () => String(url) }
+      });
+      return fallback;
+    }
+  }
+}
+// 🛡️ Copy all static properties (createObjectURL, revokeObjectURL, etc)
+Object.getOwnPropertyNames(__origURL).forEach(prop => {
+  if (!(prop in SafeURL)) {
+    try {
+      (SafeURL as any)[prop] = (__origURL as any)[prop];
+    } catch (e) { }
+  }
+});
+SafeURL.prototype = __origURL.prototype;
+(window as any).URL = SafeURL;
+
 function installCubeTextureFallback(): void {
   if (cubeTextureFallbackInstalled) return
   cubeTextureFallbackInstalled = true
@@ -233,8 +296,8 @@ function initializeApp() {
         <App />
       </ErrorBoundary>
     )
-    // 保存 root 引用，以便下次检测
-    ;(rootElement as any)._reactRootContainer = root
+      // 保存 root 引用，以便下次检测
+      ; (rootElement as any)._reactRootContainer = root
   }
 }
 

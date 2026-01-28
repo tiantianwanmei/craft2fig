@@ -37,14 +37,6 @@ export interface SkinnedMeshBridgeProps {
   scale?: number;
   /** 纸张厚度 */
   thickness?: number;
-  /** 偏移 X */
-  offsetX: number;
-  /** 偏移 Y */
-  offsetY: number;
-  /** 中心 X */
-  centerX?: number;
-  /** 中心 Y */
-  centerY?: number;
   /** 工艺图层（烫金、烫银、UV等） */
   craftLayers?: MarkedLayer[];
   /** 渲染配置 */
@@ -57,6 +49,16 @@ export interface SkinnedMeshBridgeProps {
   pbrConfig?: CraftPBRConfig;
   /** 🆕 连接器宽度缩放因子 */
   gapSizeMultiplier?: number;
+  /** 🆕 折痕曲率 (默认 1.0) */
+  creaseCurvature?: number;
+  /** 🆕 关节插值类型 */
+  jointInterpolation?: 'linear' | 'smooth' | 'arc';
+  /** 🆕 X轴补偿系数 */
+  xAxisMultiplier?: number;
+  /** 🆕 Y轴补偿系数 */
+  yAxisMultiplier?: number;
+  /** 🆕 嵌套深度因子 */
+  nestingFactor?: number;
 }
 
 /** 默认渲染配置 */
@@ -135,16 +137,17 @@ export const SkinnedMeshBridge: React.FC<SkinnedMeshBridgeProps> = ({
   jointWidth = 2,
   scale = 0.1,
   thickness = 0.8,
-  offsetX,
-  offsetY,
-  centerX: _centerX = 0,
-  centerY: _centerY = 0,
   craftLayers = [],
   renderConfig = DEFAULT_RENDER_CONFIG,
   showSkeleton = false,
   showWireframe = false,
   pbrConfig = DEFAULT_CRAFT_PBR_CONFIG,
-  gapSizeMultiplier, // 🆕 连接器宽度缩放因子（可选）
+  gapSizeMultiplier,
+  creaseCurvature = 1.0,
+  jointInterpolation = 'smooth',
+  xAxisMultiplier = 1.0,
+  yAxisMultiplier = 1.15,
+  nestingFactor = 0.15,
 }) => {
   const [textureAtlas, setTextureAtlas] = useState<TextureAtlasResult | null>(null);
 
@@ -162,25 +165,28 @@ export const SkinnedMeshBridge: React.FC<SkinnedMeshBridgeProps> = ({
   }, [jointWidth, thickness]);
 
   // 转换面板数据为 PanelNode 树
-  const panelTree = useMemo(() => {
-    if (!rootPanelId || panels.length === 0) return null;
+  const { tree: panelTree, originX, originY } = useMemo(() => {
+    if (!rootPanelId || panels.length === 0) return { tree: null, originX: 0, originY: 0 };
 
-    // 🚀 日志已移除:避免大量重复输出
-
-    // 🚀 日志已移除:避免大量重复输出
-
-    const tree = convertToPanelTree(panels, drivenMap, rootPanelId, {
-      jointWidth: Math.max(0.1, Number(jointWidth) || 0.1), // 🔧 确保传给转换器的宽度也有效
-      maxFoldAngle: Math.PI / 2,
-      edgeTolerance: 10,
-      offsetX,
-      offsetY,
+    // 🔧 计算全局边界，用于将所有坐标归一化到原点
+    let minX = Infinity, minY = Infinity;
+    panels.forEach(p => {
+      const bx = (p as any).x ?? p.bounds?.x ?? 0;
+      const by = (p as any).y ?? p.bounds?.y ?? 0;
+      minX = Math.min(minX, bx);
+      minY = Math.min(minY, by);
     });
 
-    // 🚀 日志已移除:避免大量重复输出
+    const tree = convertToPanelTree(panels, drivenMap, rootPanelId, {
+      jointWidth: 0, // 🔧 关键：逻辑树设为 0 缝隙，由物理引擎统一动态计算偏移
+      maxFoldAngle: Math.PI / 2,
+      edgeTolerance: 10,
+      offsetX: minX,
+      offsetY: minY,
+    });
 
-    return tree;
-  }, [panels, drivenMap, rootPanelId, jointWidth, offsetX, offsetY]);
+    return { tree, originX: minX, originY: minY };
+  }, [panels, drivenMap, rootPanelId]);
 
   // 🔧 使用传入的 gapSizeMultiplier 或计算的 effectiveGapMultiplier
   const appliedGapMultiplier = gapSizeMultiplier ?? effectiveGapMultiplier;
@@ -306,7 +312,7 @@ export const SkinnedMeshBridge: React.FC<SkinnedMeshBridgeProps> = ({
   return (
     <group position={groupTransform.position}>
       <SkinnedFoldingMesh
-        key={`mesh-${appliedGapMultiplier}`} // 🔧 强制在宽度变化时重新挂载，彻底清除潜在的状态残留
+        key={`mesh-${panelTree?.id || 'root'}-${jointWidth}-${appliedGapMultiplier}-${creaseCurvature}-${xAxisMultiplier}-${yAxisMultiplier}-${nestingFactor}`}
         panelTree={panelTree}
         textureAtlas={textureAtlas ?? undefined}
         foldProgress={foldProgress}
@@ -315,6 +321,14 @@ export const SkinnedMeshBridge: React.FC<SkinnedMeshBridgeProps> = ({
         jointSegments={8}
         scale={scale}
         gapSizeMultiplier={appliedGapMultiplier}
+        baseWidth={jointWidth} // 🆕 将 UI 的折痕宽度传入物理引擎作为计算基数
+        originX={originX} // 🆕 传递归一化原点，修复骨骼偏移
+        originY={originY} // 🆕 传递归一化原点，修复骨骼偏移
+        creaseCurvature={creaseCurvature}
+        jointInterpolation={jointInterpolation}
+        xAxisMultiplier={xAxisMultiplier}
+        yAxisMultiplier={yAxisMultiplier}
+        nestingFactor={nestingFactor}
         materialProps={{
           // 
           roughness: hasPbrMaps

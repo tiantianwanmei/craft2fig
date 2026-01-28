@@ -16,6 +16,7 @@ export interface PanelNode {
   children: PanelNode[];
   attachEdge: 'top' | 'bottom' | 'left' | 'right';
   color?: string;
+  rasterImage?: string;
 }
 
 // 构建拓扑树的输入
@@ -67,9 +68,9 @@ export function buildTopologyTree(input: BuildTreeInput): PanelNode | null {
     yFlipBaseline === null || yFlipBaseline === undefined
       ? vectors
       : vectors.map((v) => ({
-          ...v,
-          y: yFlipBaseline - (v.y + v.height),
-        }));
+        ...v,
+        y: yFlipBaseline - (v.y + v.height),
+      }));
 
   const vectorMap = new Map(normalizedVectors.map(v => [v.id, v]));
   const visited = new Set<string>();
@@ -274,7 +275,7 @@ export const RecursiveFoldingBox: React.FC<RecursiveFoldingBoxProps> = ({
   }, [normalizedVectors, rootId, drivenMap, nameMap]);
 
   // 计算边界和缩放
-  const { scale, offsetX, offsetY, centerX, centerZ } = useMemo(() => {
+  const { scale, offsetX, offsetY } = useMemo(() => {
     if (normalizedVectors.length === 0) {
       return { scale: 1, offsetX: 0, offsetY: 0, centerX: 0, centerZ: 0 };
     }
@@ -300,8 +301,6 @@ export const RecursiveFoldingBox: React.FC<RecursiveFoldingBoxProps> = ({
       scale: s,
       offsetX: minX,
       offsetY: minY,
-      centerX: (minX + maxX) / 2 * s - minX * s,
-      centerZ: (minY + maxY) / 2 * s - minY * s,
     };
   }, [normalizedVectors]);
 
@@ -318,7 +317,6 @@ export const RecursiveFoldingBox: React.FC<RecursiveFoldingBoxProps> = ({
   return (
     <group
       rotation={[-Math.PI / 2, 0, 0]}
-      position={[-centerX, 0, centerZ]}
     >
       {/* 根面板（H面）- 不折叠 */}
       <mesh position={[rootPosX + rootWidth / 2, thickness / 2, rootPosZ + rootHeight / 2]}>

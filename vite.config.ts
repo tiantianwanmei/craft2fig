@@ -10,8 +10,8 @@ export default defineConfig({
     viteSingleFile()
   ],
   resolve: {
-    // 🔥 关键修复：确保 React 只有一个实例，防止 useState 冲突
-    dedupe: ['react', 'react-dom']
+    // 🔥 关键修复：确保 React 和 Three.js 只有一个实例
+    dedupe: ['react', 'react-dom', 'three']
   },
   build: {
     target: 'esnext', // 🚀 使用最新 JS 特性以获得更好的性能
@@ -33,27 +33,27 @@ export default defineConfig({
         ...(true
           ? {}
           : {
-              manualChunks: (id) => {
-                // Three.js 核心库单独打包
-                if (id.includes('node_modules/three')) {
-                  return 'three';
-                }
-                // React Three Fiber 生态单独打包
-                if (id.includes('@react-three/fiber') || id.includes('@react-three/drei')) {
-                  return 'r3f';
-                }
-                // React 核心和状态管理单独打包
-                if (id.includes('node_modules/react') ||
-                  id.includes('node_modules/react-dom') ||
-                  id.includes('node_modules/zustand')) {
-                  return 'vendor';
-                }
-                // Framer Motion 单独打包
-                if (id.includes('node_modules/framer-motion')) {
-                  return 'framer';
-                }
-              },
-            }),
+            manualChunks: (id) => {
+              // Three.js 核心库单独打包
+              if (id.includes('node_modules/three')) {
+                return 'three';
+              }
+              // React Three Fiber 生态单独打包
+              if (id.includes('@react-three/fiber') || id.includes('@react-three/drei')) {
+                return 'r3f';
+              }
+              // React 核心和状态管理单独打包
+              if (id.includes('node_modules/react') ||
+                id.includes('node_modules/react-dom') ||
+                id.includes('node_modules/zustand')) {
+                return 'vendor';
+              }
+              // Framer Motion 单独打包
+              if (id.includes('node_modules/framer-motion')) {
+                return 'framer';
+              }
+            },
+          }),
       },
     },
     // 启用 gzip 压缩提示

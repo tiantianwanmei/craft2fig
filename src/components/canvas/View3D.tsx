@@ -5,7 +5,7 @@
 
 import React, { Suspense, useMemo, useRef, useEffect, useState } from 'react';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
-import { ContactShadows, OrbitControls, PerspectiveCamera } from '@react-three/drei';
+import { ContactShadows, OrbitControls, PerspectiveCamera, Center } from '@react-three/drei';
 import { useShallow } from 'zustand/react/shallow';
 import { useAppStore } from '../../store';
 import { COMPONENT_TOKENS, SEMANTIC_TOKENS } from '@genki/shared-theme';
@@ -26,7 +26,7 @@ const SCENE_GROUND_Y = 0;
 
 const GradientBackground: React.FC<{ top: string; bottom: string }> = ({ top, bottom }) => {
   const geometry = useMemo(() => {
-    const g = new THREE.SphereGeometry(400, 32, 16);
+    const g = new THREE.SphereGeometry(500000, 32, 16);
     const pos = g.getAttribute('position');
     const colors = new Float32Array(pos.count * 3);
     const topC = new THREE.Color(top);
@@ -57,7 +57,7 @@ const CameraSetup: React.FC = () => {
   useEffect(() => {
     if (camera instanceof THREE.PerspectiveCamera) {
       camera.near = 0.1;
-      camera.far = 500000;
+      camera.far = 1000000;
       camera.updateProjectionMatrix();
     }
   }, [camera]);
@@ -91,7 +91,7 @@ const SceneEnvironmentCore: React.FC = () => {
       {background.mode === 'solid' && <color attach="background" args={[gradedSolid]} />}
       {background.mode === 'gradient' && <GradientBackground top={gradedTop} bottom={gradedBottom} />}
 
-      <PerspectiveCamera makeDefault position={[200, 150, 200]} fov={45} near={0.1} far={500000} />
+      <PerspectiveCamera makeDefault position={[200, 150, 200]} fov={45} near={0.1} far={1000000} />
       <CameraSetup />
 
       <HDRDome
@@ -106,7 +106,7 @@ const SceneEnvironmentCore: React.FC = () => {
           texture={effectiveHDRTexture}
           height={hdr.domeHeight}
           radius={hdr.domeRadius}
-          scale={5000}
+          scale={(hdr.domeRadius || 5000) * 5}
           exposure={hdr.intensity}
         />
       )}
@@ -201,15 +201,22 @@ interface View3DProps {
 }
 
 export const View3D: React.FC<View3DProps> = ({ height = '100%' }) => {
-  const { clipmaskVectors, foldSequence, hPanelId, drivenMap, panelNameMap } = useAppStore(
+  const { clipmaskVectors, foldSequence, hPanelId, drivenMap, panelNameMap, previewImageUrlMap } = useAppStore(
     useShallow((s) => ({
       clipmaskVectors: s.clipmaskVectors,
       foldSequence: s.foldSequence,
       hPanelId: s.hPanelId,
       drivenMap: s.drivenMap,
       panelNameMap: s.panelNameMap,
+      previewImageUrlMap: s.previewImageUrlMap,
     }))
   );
+
+  const { hdr, background } = use3DStore(useShallow((s) => ({
+    hdr: s.hdr,
+    background: s.background,
+  })));
+  const shouldRenderHDRGround = background.mode === 'hdr' && hdr.groundProjection;
 
   // 🔍 调试：打印数据状态
   useEffect(() => {
@@ -227,6 +234,8 @@ export const View3D: React.FC<View3DProps> = ({ height = '100%' }) => {
   const foldProgressRafRef = useRef<number | null>(null);
   const [useSkinnedMesh, setUseSkinnedMesh] = useState(true);
   const [showWireframe, setShowWireframe] = useState(false);
+  const [useWebGPU, setUseWebGPU] = useState(false); // 🆕 WebGPU Toggle
+  const [WebGPURendererClass, setWebGPURendererClass] = useState<any>(null);
 
   // 🆕 参数化控制状态
   const [showParametricControls, setShowParametricControls] = useState(false);
@@ -235,6 +244,11 @@ export const View3D: React.FC<View3DProps> = ({ height = '100%' }) => {
     height: 100,
     thickness: 2,
     gapSize: 2,
+    creaseCurvature: 1.0,
+    interpolation: 'smooth' as 'linear' | 'smooth' | 'arc',
+    xAxisMultiplier: 1.0,
+    yAxisMultiplier: 1.15,
+    nestingFactor: 0.15,
   });
 
   const ground = use3DStore((s) => s.ground);
@@ -250,12 +264,38 @@ export const View3D: React.FC<View3DProps> = ({ height = '100%' }) => {
 
   // 🔍 调试：打印渲染模式切换
   useEffect(() => {
-    console.log(`🎨 View3D - 渲染模式: ${useSkinnedMesh ? 'SkinnedMesh' : 'Recursive'}`);
-  }, [useSkinnedMesh]);
+    console.log(`🎨 View3D - 渲染模式: ${useSkinnedMesh ? 'SkinnedMesh' : 'Recursive'} | Backend: ${useWebGPU ? 'WebGPU' : 'WebGL'}`);
+  }, [useSkinnedMesh, useWebGPU]);
 
   useEffect(() => {
     foldProgressRef.current = foldProgress;
   }, [foldProgress]);
+
+  // 🆕 Load WebGPU module dynamically when needed
+  useEffect(() => {
+    if (useWebGPU && !WebGPURendererClass) {
+      // 🚀 Pre-flight: Polyfill WebGPU constants if they are missing
+      if (typeof window !== 'undefined') {
+        if (!('GPUShaderStage' in window)) (window as any).GPUShaderStage = { VERTEX: 0x0001, FRAGMENT: 0x0002, COMPUTE: 0x0004 };
+        if (!('GPUBufferUsage' in window)) (window as any).GPUBufferUsage = { MAP_READ: 0x0001, MAP_WRITE: 0x0002, COPY_SRC: 0x0004, COPY_DST: 0x0008, INDEX: 0x0010, VERTEX: 0x0020, UNIFORM: 0x0040, STORAGE: 0x0080, INDIRECT: 0x0100, QUERY_RESOLVE: 0x0200 };
+        if (!('GPUColorWrite' in window)) (window as any).GPUColorWrite = { RED: 0x1, GREEN: 0x2, BLUE: 0x4, ALPHA: 0x8, ALL: 0xF };
+        if (!('GPUTextureUsage' in window)) (window as any).GPUTextureUsage = { COPY_SRC: 0x01, COPY_DST: 0x02, TEXTURE_BINDING: 0x04, STORAGE_BINDING: 0x08, RENDER_ATTACHMENT: 0x10 };
+        if (!('GPUMapMode' in window)) (window as any).GPUMapMode = { READ: 1, WRITE: 2 };
+      }
+
+      console.log('🚀 Attempting to load WebGPU engine for View3D...');
+      import('three/webgpu')
+        .then((module) => {
+          console.log('✅ WebGPU module loaded successfully for View3D');
+          setWebGPURendererClass(() => module.WebGPURenderer);
+        })
+        .catch((err) => {
+          console.error('❌ Failed to load three/webgpu in View3D:', err);
+          alert('WebGPU backend could not be loaded in this view.');
+          setUseWebGPU(false);
+        });
+    }
+  }, [useWebGPU, WebGPURendererClass]);
 
   // 转换 vectors 格式
   const { vectors, yFlipBaseline } = useMemo(() => {
@@ -312,14 +352,74 @@ export const View3D: React.FC<View3DProps> = ({ height = '100%' }) => {
     <div style={{ width: '100%', height, position: 'relative', background: COMPONENT_TOKENS.canvas.bg.area }}>
       {/* 🚀 性能优化：Canvas 配置 */}
       <Canvas
+        key={useWebGPU ? 'webgpu' : 'webgl'}
         shadows
         dpr={[1, 2]}
-        gl={{
-          powerPreference: 'high-performance',
-          antialias: true,
-          alpha: false,
-          preserveDrawingBuffer: false,
-          depth: true,
+        gl={(canvasArg) => {
+          try {
+            const hasNativeWebGPU = typeof navigator !== 'undefined' && (navigator as any).gpu;
+            const shouldAttemptWebGPU = useWebGPU && WebGPURendererClass && hasNativeWebGPU;
+
+            if (shouldAttemptWebGPU) {
+              // 🛡️ Robust Canvas Recovery
+              let canvas: HTMLCanvasElement | null = null;
+
+              const isRealCanvas = (el: any) => el && (el instanceof HTMLCanvasElement || el.nodeName === 'CANVAS');
+
+              if (isRealCanvas(canvasArg)) {
+                canvas = (canvasArg as any) as HTMLCanvasElement;
+              } else if (canvasArg && isRealCanvas((canvasArg as any).domElement)) {
+                canvas = (canvasArg as any).domElement;
+              } else {
+                canvas = document.querySelector('canvas') as HTMLCanvasElement;
+              }
+
+              if (canvas && typeof (canvas as any).getContext === 'function') {
+                const Renderer = WebGPURendererClass;
+                // @ts-ignore
+                const renderer = new Renderer({ canvas, antialias: true, alpha: false });
+
+                let isReady = false;
+                const originalRender = renderer.render;
+                renderer.render = (...args: any[]) => {
+                  if (isReady) return originalRender.apply(renderer, args);
+                };
+
+                renderer.init().then(() => {
+                  console.log('✅ View3D: WebGPU Initialized');
+                  isReady = true;
+                }).catch((e: any) => {
+                  console.error('❌ View3D: WebGPU Init Error:', e);
+                  setUseWebGPU(false);
+                });
+
+                return renderer;
+              }
+            }
+
+            // Fallback to classic WebGL
+            console.log('ℹ️ View3D: Using standard WebGLRenderer');
+            let fallbackCanvas: any = null;
+            const isRealCanvas = (el: any) => el && (el instanceof HTMLCanvasElement || el.nodeName === 'CANVAS');
+
+            if (isRealCanvas(canvasArg)) {
+              fallbackCanvas = canvasArg;
+            } else {
+              fallbackCanvas = document.querySelector('canvas');
+            }
+
+            return new THREE.WebGLRenderer({
+              canvas: fallbackCanvas || undefined,
+              powerPreference: 'high-performance',
+              antialias: true,
+              alpha: false,
+              preserveDrawingBuffer: false,
+              depth: true,
+            });
+          } catch (e) {
+            console.error('❌ View3D: Renderer Error:', e);
+            return new THREE.WebGLRenderer({ antialias: true });
+          }
         }}
         style={{ background: 'transparent' }}
       >
@@ -328,36 +428,45 @@ export const View3D: React.FC<View3DProps> = ({ height = '100%' }) => {
         </Suspense>
 
         <Suspense fallback={null}>
-          {rootId && vectors.length > 0 && (
-            <group position={[0, 0, 0]}>
-              {useSkinnedMesh ? (
-                <SkinnedMeshView
-                  vectors={vectors}
-                  rootId={rootId}
-                  drivenMap={drivenMapStable}
-                  nameMap={panelNameMapStable}
-                  foldProgress={foldProgress}
-                  thickness={2}
-                  cornerRadius={2}
-                  showWireframe={showWireframe}
-                  yFlipBaseline={yFlipBaseline}
-                />
-              ) : (
-                <RecursiveFoldingBox
-                  vectors={vectors}
-                  rootId={rootId}
-                  drivenMap={drivenMapStable}
-                  nameMap={panelNameMapStable}
-                  foldProgress={foldProgress}
-                  thickness={2}
-                  yFlipBaseline={yFlipBaseline}
-                />
-              )}
-            </group>
-          )}
+          <Center top>
+            {rootId && vectors.length > 0 && (
+              <group position={[0, 0, 0]}>
+                {useSkinnedMesh ? (
+                  <SkinnedMeshView
+                    vectors={vectors}
+                    rootId={rootId}
+                    drivenMap={drivenMapStable}
+                    nameMap={panelNameMapStable}
+                    foldProgress={foldProgressRef}
+                    thickness={2}
+                    cornerRadius={2}
+                    showWireframe={showWireframe}
+                    yFlipBaseline={null}
+                    imageMap={previewImageUrlMap}
+                    gapSizeMultiplier={parametricParams.gapSize / parametricParams.thickness}
+                    creaseCurvature={parametricParams.creaseCurvature}
+                    jointInterpolation={parametricParams.interpolation}
+                    xAxisMultiplier={parametricParams.xAxisMultiplier}
+                    yAxisMultiplier={parametricParams.yAxisMultiplier}
+                    nestingFactor={parametricParams.nestingFactor}
+                  />
+                ) : (
+                  <RecursiveFoldingBox
+                    vectors={vectors}
+                    rootId={rootId}
+                    drivenMap={drivenMapStable}
+                    nameMap={panelNameMapStable}
+                    foldProgress={foldProgress}
+                    thickness={2}
+                    yFlipBaseline={yFlipBaseline}
+                  />
+                )}
+              </group>
+            )}
+          </Center>
         </Suspense>
 
-        {ground.visible && (
+        {ground.visible && !shouldRenderHDRGround && (
           <>
             <ContactShadows
               position={[0, effectiveGroundY, 0]}
@@ -383,11 +492,12 @@ export const View3D: React.FC<View3DProps> = ({ height = '100%' }) => {
         <OrbitControls
           makeDefault
           ref={controlsRef}
+          target={[0, 0, 0]}
           enablePan={false}
           minPolarAngle={0}
           maxPolarAngle={Math.PI / 1.8}
           minDistance={5}
-          maxDistance={500000}
+          maxDistance={(background.mode === 'hdr' && hdr.groundProjection) ? (hdr.domeRadius || 5000) : 500000}
           enableDamping
           dampingFactor={0.1}
           rotateSpeed={1.0}
@@ -423,6 +533,23 @@ export const View3D: React.FC<View3DProps> = ({ height = '100%' }) => {
           }}
         >
           {useSkinnedMesh ? 'Skinned' : 'Recursive'}
+        </button>
+
+        {/* WebGPU Toggle */}
+        <button
+          onClick={() => setUseWebGPU(!useWebGPU)}
+          style={{
+            padding: '4px 8px',
+            fontSize: 11,
+            background: useWebGPU ? '#8b5cf6' : 'transparent',
+            color: useWebGPU ? '#fff' : SEMANTIC_TOKENS.color.text.secondary,
+            border: `1px solid ${useWebGPU ? '#8b5cf6' : SEMANTIC_TOKENS.color.border.default}`,
+            borderRadius: SEMANTIC_TOKENS.border.radius.sm,
+            cursor: 'pointer',
+          }}
+          title="Toggle Experimental WebGPU Backend"
+        >
+          {useWebGPU ? 'WebGPU' : 'WebGL'}
         </button>
 
         {/* 线框模式 */}
@@ -487,6 +614,11 @@ export const View3D: React.FC<View3DProps> = ({ height = '100%' }) => {
           initialHeight={parametricParams.height}
           initialThickness={parametricParams.thickness}
           initialGapSize={parametricParams.gapSize}
+          initialCurvature={parametricParams.creaseCurvature}
+          initialInterpolation={parametricParams.interpolation}
+          initialXMultiplier={parametricParams.xAxisMultiplier}
+          initialYMultiplier={parametricParams.yAxisMultiplier}
+          initialNestingFactor={parametricParams.nestingFactor}
           onChange={(newParams) => {
             console.log('🎛️ 参数化调整:', newParams);
             setParametricParams(newParams);

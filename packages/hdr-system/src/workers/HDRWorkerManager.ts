@@ -24,16 +24,21 @@ const pendingRequests = new Map<string, {
   onProgress?: (progress: number) => void;
 }>();
 
+import HDRWorker from './hdr.worker?worker&inline';
+
 /**
  * 获取或创建 Worker 实例
  */
 function getWorker(): Worker {
   if (!workerInstance) {
-    // 使用 Vite 的 Worker 导入语法
-    workerInstance = new Worker(
-      new URL('./hdr.worker.ts', import.meta.url),
-      { type: 'module' }
-    );
+    try {
+      workerInstance = new HDRWorker();
+    } catch (e) {
+      console.error('❌ Failed to initialize HDR Worker:', e);
+      // Fallback or rethrow
+      throw e;
+    }
+
 
     workerInstance.onmessage = handleWorkerMessage;
     workerInstance.onerror = handleWorkerError;
