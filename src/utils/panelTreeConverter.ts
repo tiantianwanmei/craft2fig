@@ -5,7 +5,29 @@
  */
 
 import type { MarkedLayer } from '../types/core';
-import type { PanelNode, JointInfo, Rect2D, Point2D } from '@genki/folding-3d';
+import type { PanelNode } from '@genki/folding-3d';
+
+type Point2D = {
+  x: number;
+  y: number;
+};
+
+type Rect2D = {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+};
+
+type JointInfo = {
+  type: 'horizontal' | 'vertical';
+  position: Point2D;
+  length: number;
+  width: number;
+  direction: 1 | -1;
+  maxAngle: number;
+  gapSize?: number;
+};
 
 /** 转换配置 */
 export interface ConvertConfig {
@@ -118,12 +140,16 @@ function detectSharedEdge(
  * 从 MarkedLayer 提取边界信息（应用偏移）
  */
 function extractBounds(layer: MarkedLayer, offsetX: number, offsetY: number): Rect2D {
-  return {
-    x: ((layer as any).x ?? layer.bounds?.x ?? 0) - offsetX,
-    y: ((layer as any).y ?? layer.bounds?.y ?? 0) - offsetY,
+  const rawX = (layer as any).x ?? layer.bounds?.x ?? 0;
+  const rawY = (layer as any).y ?? layer.bounds?.y ?? 0;
+  const result = {
+    x: rawX - offsetX,
+    y: rawY - offsetY,
     width: (layer as any).width ?? layer.bounds?.width ?? 100,
     height: (layer as any).height ?? layer.bounds?.height ?? 50,
   };
+
+  return result;
 }
 
 /**

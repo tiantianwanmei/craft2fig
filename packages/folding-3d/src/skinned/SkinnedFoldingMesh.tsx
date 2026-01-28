@@ -181,7 +181,6 @@ function buildStitchedGeometry(
     gapSizes?: Map<string, number>; // 🆕 动态连接器宽度映射
     offsets?: Map<string, { x: number; y: number }>;
     creaseCurvature?: number; // 🆕 折痕曲率
-    alignOffset?: { x: number; y: number }; // 🆕 归一化对齐偏移
   },
   regions?: Map<string, any> // AtlasRegion type
 ): THREE.BufferGeometry {
@@ -237,16 +236,14 @@ function buildStitchedGeometry(
 
     const isHorizontal = joint.type === 'horizontal';
     const length = joint.length * scale;
-    const alignX = config.alignOffset?.x ?? 0;
-    const alignY = config.alignOffset?.y ?? 0;
 
     // Determine Orientation (Parent -> Child)
     let startOffset = -halfW;
     let endOffset = halfW;
 
     if (isHorizontal) {
-      const parentY = -(parentBounds.y - alignY) * scale;
-      const jY = -(joint.position.y - alignY) * scale;
+      const parentY = -(parentBounds.y) * scale;
+      const jY = -(joint.position.y) * scale;
       const isTop = jY > parentY;
       const isTopDir = joint.direction < 0; // Simple heuristic for now
       if (node.bounds.y > parentBounds.y) { // Child is Below (Normal)
@@ -272,10 +269,10 @@ function buildStitchedGeometry(
     const parentRegion = node.parentId ? regions?.get(node.parentId) : undefined;
     const childRegion = regions?.get(node.id);
 
-    // UVs: Use center of joint in world space
+    // UVs: Use center of joint in world space (已被归一化)
     const rawBonePos = boneWorldPositions.get(node.id) || { x: 0, y: 0 };
-    const centerX_2D = rawBonePos.x - alignX;
-    const centerY_2D = rawBonePos.y - alignY;
+    const centerX_2D = rawBonePos.x;
+    const centerY_2D = rawBonePos.y;
 
     // Model Space Center (3D)
     const centerX_3D = centerX_2D * scale;
@@ -313,8 +310,8 @@ function buildStitchedGeometry(
       // --- Front Vertices ---
       const posX0 = centerX_3D + dx0;
       const posY0 = centerY_3D + dy0;
-      const layoutX0 = posX0 / scale + alignX;
-      const layoutY0 = -posY0 / scale + alignY;
+      const layoutX0 = posX0 / scale;
+      const layoutY0 = -posY0 / scale;
 
       let u0 = (layoutX0 - bounds.minX) / bounds.width;
       let v0 = 1 - (layoutY0 - bounds.minY) / bounds.height;
@@ -334,8 +331,8 @@ function buildStitchedGeometry(
 
       const posX1 = centerX_3D + dx1;
       const posY1 = centerY_3D + dy1;
-      const layoutX1 = posX1 / scale + alignX;
-      const layoutY1 = -posY1 / scale + alignY;
+      const layoutX1 = posX1 / scale;
+      const layoutY1 = -posY1 / scale;
 
       let u1 = (layoutX1 - bounds.minX) / bounds.width;
       let v1 = 1 - (layoutY1 - bounds.minY) / bounds.height;
@@ -441,13 +438,22 @@ function buildStitchedGeometry(
     const rectH = height;
 
     // Model Space Coordinates (Global + Offset)
-    const alignOffset = config.alignOffset || { x: 0, y: 0 };
 
-    // Model Space Coordinates (Global + Offset)
-    const lx0 = (rectX + offset.x - alignOffset.x) * scale;
-    const lx1 = (rectX + rectW + offset.x - alignOffset.x) * scale;
-    const ly0 = -(rectY + offset.y - alignOffset.y) * scale;
-    const ly1 = -(rectY + rectH + offset.y - alignOffset.y) * scale;
+    // Model Space Coordinates (已被 convertToPanelTree 归一化)
+    const lx0 = (rectX + offset.x) * scale;
+    if (node.id.includes('4244')) {
+      console.error(`📐 RECT GEOMETRY [${node.id}]:`, {
+        rectX,
+        offset: offset.x,
+        scale,
+        lx0
+      });
+    }
+    const lx1 = (rectX + rectW + offset.x) * scale;
+    const ly0 = -(rectY + offset.y) * scale;
+    const ly1 = -(rectY + rectH + offset.y) * scale;
+
+
 
     // UVs - Standardized (u=x, v=y)
     // Matches Texture Origin = Top Left
@@ -505,8 +511,8 @@ function buildStitchedGeometry(
               const absX = node.bounds.x + localX;
               const absY = node.bounds.y + localY;
 
-              const modelX = (absX + offset.x - alignOffset.x) * scale;
-              const modelY = -(absY + offset.y - alignOffset.y) * scale;
+              const modelX = (absX + offset.x) * scale;
+              const modelY = -(absY + offset.y) * scale;
 
               // Use Original Layout for UVs
               const uLayout = (absX - bounds.minX) / bounds.width;
@@ -557,8 +563,8 @@ function buildStitchedGeometry(
               const absY = node.bounds.y + localY;
               const zOffset = (config.thickness || 1) / 2;
               // Back Vertices
-              const modelX = (absX + offset.x - alignOffset.x) * scale;
-              const modelY = -(absY + offset.y - alignOffset.y) * scale;
+              const modelX = (absX + offset.x) * scale;
+              const modelY = -(absY + offset.y) * scale;
               addVertex([modelX, modelY, -zOffset], [0, 0], [0, 0, -1], boneIdx);
             }
 
@@ -703,16 +709,24 @@ export const SkinnedFoldingMesh: React.FC<SkinnedFoldingMeshProps> = ({
     // 🆕 Calculate Expanded Bounds (Used for UV and Origin Normalization)
     const bounds = calculateBounds(panelTree, offsets);
 
+    const centerX = (bounds.minX + bounds.maxX) / 2;
+    const centerY = (bounds.minY + bounds.maxY) / 2;
+    const centerPosition: [number, number, number] = [
+      -centerX * scale,
+      centerY * scale,
+      0,
+    ];
+
     const skeletonBuilder = new SkeletonBuilder();
     // Pass offsets and alignOffset to skeleton builder
-    const skeletonResult = skeletonBuilder.build(panelTree, scale, offsets, { x: originX, y: originY });
+    const skeletonResult = skeletonBuilder.build(panelTree, scale, offsets);
 
     const geometry = buildStitchedGeometry(
       panelTree,
       skeletonResult.boneIndexMap,
       skeletonResult.boneWorldPositions,
       bounds,
-      { thickness, jointSegments, cornerRadius, scale, jointInterpolation, gapSizes, offsets, creaseCurvature, alignOffset: { x: originX, y: originY } },
+      { thickness, jointSegments, cornerRadius, scale, jointInterpolation, gapSizes, offsets, creaseCurvature },
       externalAtlas?.regions
     );
 
@@ -727,6 +741,8 @@ export const SkinnedFoldingMesh: React.FC<SkinnedFoldingMeshProps> = ({
       boneIndexMap: skeletonResult.boneIndexMap,
       texture,
       timings,
+      bounds,
+      centerPosition,
     };
   }, [panelTree, externalAtlas, thickness, cornerRadius, jointSegments, customTimings, scale, jointInterpolation, gapSizeMultiplier, baseWidth, originX, originY, creaseCurvature, xAxisMultiplier, yAxisMultiplier, nestingFactor]);
 
@@ -737,7 +753,21 @@ export const SkinnedFoldingMesh: React.FC<SkinnedFoldingMeshProps> = ({
     // 计算并更新逆变换矩阵
     meshData.skeleton.calculateInverses();
     meshRef.current.updateMatrixWorld(true);
-    console.log('🦴 骨骼系统同步完成');
+  }, [meshData]);
+
+  // 🔧 强制更新 geometry 以确保参数变化时实时反馈
+  useEffect(() => {
+    if (!meshRef.current || !meshData.geometry) return;
+
+    // 手动更新 geometry 引用
+    meshRef.current.geometry = meshData.geometry;
+    meshRef.current.geometry.attributes.position.needsUpdate = true;
+    if (meshRef.current.geometry.attributes.skinWeight) {
+      meshRef.current.geometry.attributes.skinWeight.needsUpdate = true;
+    }
+    if (meshRef.current.geometry.attributes.skinIndex) {
+      meshRef.current.geometry.attributes.skinIndex.needsUpdate = true;
+    }
   }, [meshData]);
 
   // 更新骨骼旋转 (Explicit State Loop)
@@ -818,7 +848,7 @@ export const SkinnedFoldingMesh: React.FC<SkinnedFoldingMeshProps> = ({
   }, [materials, roughness, metalness, clearcoat, clearcoatRoughness, color]);
 
   return (
-    <group>
+    <group position={meshData.centerPosition}>
       {meshData.geometry && meshData.skeleton && (
         <skinnedMesh
           ref={meshRef}

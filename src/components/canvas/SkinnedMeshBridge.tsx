@@ -312,7 +312,7 @@ export const SkinnedMeshBridge: React.FC<SkinnedMeshBridgeProps> = ({
   return (
     <group position={groupTransform.position}>
       <SkinnedFoldingMesh
-        key={`mesh-${panelTree?.id || 'root'}-${jointWidth}-${appliedGapMultiplier}-${creaseCurvature}-${xAxisMultiplier}-${yAxisMultiplier}-${nestingFactor}`}
+        key={`mesh-${panelTree?.id || 'root'}`}
         panelTree={panelTree}
         textureAtlas={textureAtlas ?? undefined}
         foldProgress={foldProgress}

@@ -1325,33 +1325,47 @@ const CraftScene3D: React.FC<CraftScene3DProps> = ({
       )}
 
       {/* 使用嵌套 Group 方案实现折叠 */}
-      <Center>
-        {hasHierarchy ? (
-          <>
-            {geometryMode === 'skinned' ? (
-              <group position={[0, 0, 0]} frustumCulled={false}>
-                <SkinnedMeshBridge
-                  panels={panels}
-                  drivenMap={drivenMap}
-                  rootPanelId={rootPanelId}
-                  foldProgress={foldProgress}
-                  foldSequence={foldSequence}
-                  jointWidth={foldEdgeWidth}
-                  scale={scale}
-                  thickness={thickness}
-                  craftLayers={craftLayers}
-                  renderConfig={renderConfig}
-                  showSkeleton={showSkeleton}
-                  showWireframe={showWireframe}
-                  pbrConfig={pbrConfig}
-                  creaseCurvature={creaseCurvature}
-                  jointInterpolation={jointInterpolation}
-                  xAxisMultiplier={xAxisMultiplier}
-                  yAxisMultiplier={yAxisMultiplier}
-                  nestingFactor={nestingFactor}
-                />
-              </group>
-            ) : (
+      {hasHierarchy && geometryMode === 'skinned' ? (
+        <group position={[0, 0, 0]}>
+          <group position={[0, 0, 0]} frustumCulled={false}>
+            <SkinnedMeshBridge
+              panels={panels}
+              drivenMap={drivenMap}
+              rootPanelId={rootPanelId}
+              foldProgress={foldProgress}
+              foldSequence={foldSequence}
+              jointWidth={foldEdgeWidth}
+              scale={scale}
+              thickness={thickness}
+              craftLayers={craftLayers}
+              renderConfig={renderConfig}
+              showSkeleton={showSkeleton}
+              showWireframe={showWireframe}
+              pbrConfig={pbrConfig}
+              creaseCurvature={creaseCurvature}
+              jointInterpolation={jointInterpolation}
+              xAxisMultiplier={xAxisMultiplier}
+              yAxisMultiplier={yAxisMultiplier}
+              nestingFactor={nestingFactor}
+            />
+          </group>
+          {orphanPanels.map((panel) => (
+            <OrphanPanelMesh
+              key={panel.id}
+              panel={panel}
+              craftLayers={craftLayerMap.get(panel.id) || []}
+              thickness={thickness}
+              scale={scale}
+              offsetX={bounds.minX}
+              offsetY={bounds.minY}
+              renderConfig={renderConfig}
+            />
+          ))}
+        </group>
+      ) : (
+        <Center>
+          {hasHierarchy ? (
+            <>
               <group position={[0, 0, 0]} frustumCulled={false}>
                 <NestedGroupFold
                   panels={panels}
@@ -1370,27 +1384,27 @@ const CraftScene3D: React.FC<CraftScene3DProps> = ({
                   pbrMaps={pbrMaps}
                 />
               </group>
-            )}
-            {/* 渲染不在层级中的独立面板 */}
-            {orphanPanels.map((panel) => (
-              <OrphanPanelMesh
-                key={panel.id}
-                panel={panel}
-                craftLayers={craftLayerMap.get(panel.id) || []}
-                thickness={thickness}
-                scale={scale}
-                offsetX={bounds.minX}
-                offsetY={bounds.minY}
-                renderConfig={renderConfig}
-              />
-            ))}
-          </>
-        ) : (
-          panels.map((panel, index) => (
-            <CraftAnnotationMesh key={panel.id} layer={panel} index={index} />
-          ))
-        )}
-      </Center>
+              {/* 渲染不在层级中的独立面板 */}
+              {orphanPanels.map((panel) => (
+                <OrphanPanelMesh
+                  key={panel.id}
+                  panel={panel}
+                  craftLayers={craftLayerMap.get(panel.id) || []}
+                  thickness={thickness}
+                  scale={scale}
+                  offsetX={bounds.minX}
+                  offsetY={bounds.minY}
+                  renderConfig={renderConfig}
+                />
+              ))}
+            </>
+          ) : (
+            panels.map((panel, index) => (
+              <CraftAnnotationMesh key={panel.id} layer={panel} index={index} />
+            ))
+          )}
+        </Center>
+      )}
     </group>
   );
 };

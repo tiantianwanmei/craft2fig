@@ -19,15 +19,13 @@ export class SkeletonBuilder {
   private boneWorldPositions: Map<string, Point2D> = new Map();
   private scale: number = 1;
   private offsets: Map<string, { x: number; y: number }> = new Map();
-  private alignOffset: Point2D = { x: 0, y: 0 };
 
-  build(root: PanelNode, scale: number = 1, offsets?: Map<string, { x: number; y: number }>, alignOffset?: Point2D): SkeletonBuildResult {
+  build(root: PanelNode, scale: number = 1, offsets?: Map<string, { x: number; y: number }>): SkeletonBuildResult {
     this.bones = [];
     this.boneIndexMap.clear();
     this.bonePanelMap.clear();
     this.boneWorldPositions.clear();
     this.scale = scale;
-    this.alignOffset = alignOffset || { x: 0, y: 0 };
     if (offsets) {
       this.offsets = offsets;
     } else {
@@ -68,12 +66,20 @@ export class SkeletonBuilder {
     const bone = new THREE.Bone();
     bone.name = `bone_${node.id}`;
 
-    // 根骨骼在面板中心的 3D 位置（使用原始坐标 + 偏移 - 归一化偏移）
+    // 根骨骼在面板中心的 3D 位置（使用 bounds 计算中心，与几何体保持一致）
     const offset = this.offsets.get(node.id) || { x: 0, y: 0 };
-    const pos2D = { x: node.center.x + offset.x, y: node.center.y + offset.y };
+    // 🔧 关键修复：使用 bounds 计算中心，而不是 node.center
+    // 这确保骨骼和几何体使用完全相同的坐标基准
+    const centerX = node.bounds.x + node.bounds.width / 2;
+    const centerY = node.bounds.y + node.bounds.height / 2;
+    const pos2D = { x: centerX + offset.x, y: centerY + offset.y };
+
+
+
+    // 🔧 坐标已被 convertToPanelTree 归一化，不需要再减 alignOffset
     bone.position.set(
-      (pos2D.x - this.alignOffset.x) * this.scale,
-      -(pos2D.y - this.alignOffset.y) * this.scale,
+      pos2D.x * this.scale,
+      -pos2D.y * this.scale,
       0
     );
 
@@ -181,7 +187,10 @@ export class SkeletonBuilder {
 
       return { x: baseX + midOffsetX, y: baseY + midOffsetY };
     }
-    return { x: node.center.x + parentOffset.x, y: node.center.y + parentOffset.y };
+    // 🔧 Fallback: 使用 bounds 计算中心，与几何体保持一致
+    const centerX = node.bounds.x + node.bounds.width / 2;
+    const centerY = node.bounds.y + node.bounds.height / 2;
+    return { x: centerX + parentOffset.x, y: centerY + parentOffset.y };
   }
 
   private registerBone(bone: THREE.Bone, node: PanelNode, pos2D: Point2D): void {
